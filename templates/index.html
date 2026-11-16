@@ -1,0 +1,4392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ScriptGraph - Screenplay Analysis</title>
+    
+    <!-- Vis.js Network for graph visualization -->
+    <script src="https://unpkg.com/vis-network@9.1.6/standalone/umd/vis-network.min.js" 
+            onload="console.log('vis.js loaded successfully')"
+            onerror="console.error('Failed to load vis.js')"></script>
+    
+    <style>
+        :root {
+            --primary-purple: #5b3cfa;
+            --primary-orange: #fd9d31;
+            --dark-blue: #254189;
+            --light-bg: #f2f6fb;
+            --accent-blue: #127efb;
+            --success-green: #4aad6a;
+            --light-purple: #a990f9;
+            --medium-blue: #6c97d1;
+            --deep-blue: #0017fc;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--light-bg);
+            color: #333;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .container {
+            display: flex;
+            height: 100vh;
+        }
+
+        .container.arc-visible {
+            /* Keep flex layout even when arc is visible */
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 320px;
+            min-width: 250px;
+            max-width: 500px;
+            background: white;
+            border-right: 1px solid #e0e0e0;
+            display: flex;
+            flex-direction: column;
+            z-index: 100;
+            overflow-y: auto;
+            position: relative;
+        }
+
+        .sidebar-resize-handle {
+            position: absolute;
+            right: 0;
+            top: 0;
+            bottom: 0;
+            width: 5px;
+            cursor: ew-resize;
+            background: transparent;
+            z-index: 101;
+            transition: background 0.2s;
+        }
+
+        .sidebar-resize-handle:hover {
+            background: rgba(91, 60, 250, 0.3);
+        }
+
+        .sidebar-resize-handle:active {
+            background: var(--primary-purple);
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .logo {
+            font-size: 20px;
+            font-weight: 700;
+            color: #1a1a1a;
+            margin-bottom: 16px;
+        }
+
+        .logo span {
+            color: var(--primary-purple);
+        }
+
+        .btn {
+            padding: 12px 16px;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            background: white;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            width: 100%;
+        }
+
+        .btn:hover {
+            background: #f5f5f5;
+        }
+
+        .btn-primary {
+            background: var(--primary-purple);
+            color: white;
+            border-color: var(--primary-purple);
+        }
+
+        .btn-primary:hover {
+            background: var(--deep-blue);
+        }
+
+        .library-section {
+            overflow-y: auto;
+            padding: 16px;
+        }
+
+        .library-title {
+            font-size: 12px;
+            font-weight: 600;
+            color: #666;
+            text-transform: uppercase;
+            margin-bottom: 12px;
+            padding: 0 8px;
+        }
+
+        .screenplay-item {
+            padding: 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            margin-bottom: 4px;
+            transition: all 0.2s;
+            display: flex;
+            gap: 12px;
+        }
+
+        .screenplay-item:hover {
+            background: #f5f5f5;
+        }
+
+        .screenplay-item.active {
+            background: #e8e3fe;
+            border-left: 3px solid var(--primary-purple);
+        }
+
+        .screenplay-thumb {
+            width: 48px;
+            height: 64px;
+            border-radius: 4px;
+            background: #f0f0f0;
+            flex-shrink: 0;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .screenplay-thumb img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .screenplay-details {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .screenplay-name {
+            font-size: 14px;
+            font-weight: 600;
+            color: #1a1a1a;
+            margin-bottom: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .screenplay-meta {
+            font-size: 12px;
+            color: #666;
+        }
+
+        .empty-library {
+            text-align: center;
+            padding: 40px 20px;
+            color: #999;
+        }
+
+        .sidebar-footer {
+            padding: 16px;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .neo4j-link {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px;
+            background: #f5f5f5;
+            border-radius: 8px;
+            text-decoration: none;
+            color: var(--accent-blue);
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .neo4j-link:hover {
+            background: #e8e3fe;
+        }
+
+        /* Main Area - Split view */
+        .main-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-width: 400px;
+        }
+
+        .content-split {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        /* Graph Visualization */
+        .graph-panel {
+            flex: 1;
+            min-width: 400px;
+            display: flex;
+            flex-direction: column;
+            background: white;
+            border-right: 1px solid #e0e0e0;
+            position: relative;
+        }
+
+        .graph-resize-handle {
+            position: absolute;
+            right: 0;
+            top: 0;
+            bottom: 0;
+            width: 5px;
+            cursor: ew-resize;
+            background: transparent;
+            z-index: 10;
+            transition: background 0.2s;
+        }
+
+        .graph-resize-handle:hover {
+            background: rgba(91, 60, 250, 0.3);
+        }
+
+        .graph-resize-handle:active {
+            background: var(--primary-purple);
+        }
+
+        .graph-header {
+            padding: 14px 20px;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            background: #ffffff;
+        }
+
+        .graph-header-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .graph-title-group {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .graph-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: #111827;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .graph-subtitle {
+            font-size: 12px;
+            color: #6b7280;
+        }
+
+        .graph-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .graph-stats-badge {
+            font-size: 12px;
+            font-weight: 600;
+            background: #f3f4f6;
+            color: #4b5563;
+            padding: 4px 10px;
+            border-radius: 12px;
+            border: 1px solid #e5e7eb;
+        }
+
+
+        .level-indicator {
+            display: flex;
+            align-items: center;
+        }
+        .level-indicator-label {
+            font-size: 13px;
+            font-weight: 700;
+            color: #5b3cfa;
+            background: #ede9fe;
+            border: 1.5px solid #a78bfa;
+            border-radius: 20px;
+            padding: 4px 14px;
+            letter-spacing: 0.02em;
+        }
+        .level-selector-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .level-tabs {
+            display: flex;
+            align-items: center;
+            background: #f3f4f6;
+            padding: 3px;
+            border-radius: 10px;
+            gap: 3px;
+        }
+
+        .level-tab {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 13px;
+            border: none;
+            border-radius: 7px;
+            background: transparent;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            color: #4b5563;
+            transition: all 0.2s ease;
+        }
+
+        .level-tab:hover {
+            color: #111827;
+            background: rgba(255, 255, 255, 0.6);
+        }
+
+        .level-tab.active {
+            background: #ffffff;
+            color: var(--primary-purple);
+            font-weight: 600;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+        }
+
+        .level-badge {
+            font-size: 11px;
+            font-weight: 700;
+            background: #e0e7ff;
+            color: var(--primary-purple);
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+
+        .level-tab.active .level-badge {
+            background: var(--primary-purple);
+            color: #ffffff;
+        }
+
+        .level-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-subtle {
+            padding: 6px 12px;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            background: #ffffff;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+            color: #374151;
+            transition: all 0.15s;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .btn-subtle:hover {
+            background: #f9fafb;
+            border-color: #d1d5db;
+            color: #111827;
+        }
+
+        .btn-icon {
+            padding: 6px 12px;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            background: white;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn-icon:hover {
+            background: #f5f5f5;
+            border-color: var(--primary-purple);
+        }
+
+        /* Level 3 Scene Inspector Panel */
+        .scene-inspector-panel {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            max-height: 52%;
+            background: #ffffff;
+            border-top: 2px solid var(--primary-purple);
+            box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.15);
+            display: flex;
+            flex-direction: column;
+            z-index: 25;
+            animation: slideUp 0.25s ease-out;
+        }
+
+        @keyframes slideUp {
+            from { transform: translateY(100%); }
+            to { transform: translateY(0); }
+        }
+
+        .scene-inspector-header {
+            padding: 10px 18px;
+            background: #f9fafb;
+            border-bottom: 1px solid #e5e7eb;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .scene-header-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .scene-pill {
+            background: #10b981;
+            color: white;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 3px 8px;
+            border-radius: 4px;
+        }
+
+        .scene-page-pill {
+            background: #e5e7eb;
+            color: #374151;
+            font-size: 11px;
+            font-weight: 600;
+            padding: 3px 7px;
+            border-radius: 4px;
+        }
+
+        .scene-header-text {
+            font-size: 13px;
+            font-weight: 600;
+            color: #111827;
+        }
+
+        .scene-header-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-xs {
+            padding: 4px 10px;
+            border: 1px solid #d1d5db;
+            border-radius: 5px;
+            background: white;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            color: #4b5563;
+        }
+
+        .btn-xs:hover {
+            background: #f3f4f6;
+            color: #111827;
+        }
+
+        .scene-close-btn {
+            width: 26px;
+            height: 26px;
+            border: none;
+            background: #e5e7eb;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #4b5563;
+        }
+
+        .scene-close-btn:hover {
+            background: #d1d5db;
+            color: #111827;
+        }
+
+        .scene-inspector-body {
+            padding: 14px 18px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .scene-section {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .scene-section-title {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #6b7280;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .fact-count-badge {
+            background: #e0e7ff;
+            color: var(--primary-purple);
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+
+        .scene-script-container {
+            background: #1e1e24;
+            color: #e2e8f0;
+            padding: 12px 16px;
+            border-radius: 7px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 12px;
+            line-height: 1.5;
+            max-height: 150px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            border-left: 3px solid var(--primary-purple);
+        }
+
+        .scene-grid-cols {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .scene-pills-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .scene-char-pill {
+            background: #f3f0ff;
+            color: #6d28d9;
+            border: 1px solid #ddd6fe;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .scene-events-list {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            max-height: 100px;
+            overflow-y: auto;
+        }
+
+        .scene-event-item {
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            padding: 5px 8px;
+            font-size: 11px;
+        }
+
+        .scene-event-title {
+            font-weight: 600;
+            color: #111827;
+        }
+
+        .scene-event-desc {
+            color: #6b7280;
+            font-size: 11px;
+            margin-top: 2px;
+        }
+
+        .scene-facts-table-wrap {
+            max-height: 130px;
+            overflow-y: auto;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+        }
+
+        .scene-facts-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 11px;
+            text-align: left;
+        }
+
+        .scene-facts-table th {
+            background: #f9fafb;
+            padding: 6px 10px;
+            font-weight: 600;
+            color: #4b5563;
+            border-bottom: 1px solid #e5e7eb;
+            position: sticky;
+            top: 0;
+        }
+
+        .scene-facts-table td {
+            padding: 6px 10px;
+            border-bottom: 1px solid #f3f4f6;
+            color: #1f2937;
+        }
+
+        .fact-id-code {
+            font-family: monospace;
+            background: #eef2ff;
+            color: #4338ca;
+            padding: 2px 5px;
+            border-radius: 4px;
+            font-size: 10px;
+            cursor: pointer;
+            border: 1px solid #c7d2fe;
+            display: inline-block;
+        }
+
+        .fact-id-code:hover {
+            background: #e0e7ff;
+        }
+
+        #graph-container {
+            flex: 1;
+            background: #fafafa;
+            position: relative;
+            min-height: 400px;
+        }
+
+        .graph-empty {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            flex-direction: column;
+            color: #999;
+            gap: 12px;
+        }
+
+        /* Chat Panel */
+        .chat-panel {
+            width: 500px;
+            min-width: 350px;
+            max-width: 700px;
+            display: flex;
+            flex-direction: column;
+            background: white;
+        }
+
+        .chat-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .current-doc {
+            font-size: 16px;
+            font-weight: 600;
+            color: #1a1a1a;
+        }
+
+        .current-doc.empty {
+            color: #999;
+        }
+
+        .chat-area {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px;
+        }
+
+        .message {
+            margin-bottom: 24px;
+            display: flex;
+            gap: 12px;
+        }
+
+        .message-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: #007bff;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 14px;
+            flex-shrink: 0;
+        }
+
+        .message.assistant .message-avatar {
+            background: #28a745;
+        }
+
+        .message-content {
+            flex: 1;
+        }
+
+        .message-text {
+            line-height: 1.6;
+            color: #333;
+            font-size: 15px;
+        }
+
+        .empty-chat {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: #999;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .empty-chat-icon {
+            font-size: 48px;
+        }
+
+        /* Input Area */
+        .input-area {
+            padding: 20px 24px;
+            border-top: 1px solid #e0e0e0;
+            background: white;
+        }
+
+        .input-wrapper {
+            display: flex;
+            gap: 12px;
+        }
+
+        .input-field {
+            flex: 1;
+            padding: 12px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 20px;
+            font-size: 14px;
+            outline: none;
+            transition: all 0.2s;
+        }
+
+        .input-field:focus {
+            border-color: var(--primary-purple);
+        }
+
+        .send-btn {
+            width: 40px;
+            height: 40px;
+            border: none;
+            border-radius: 50%;
+            background: var(--primary-purple);
+            color: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            flex-shrink: 0;
+        }
+
+        .send-btn:hover {
+            background: var(--deep-blue);
+        }
+
+        .send-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 12px;
+            padding: 32px;
+            max-width: 500px;
+            width: 90%;
+        }
+
+        .modal-header {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 24px;
+        }
+
+        .upload-area {
+            border: 3px dashed var(--primary-purple);
+            border-radius: 12px;
+            padding: 48px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .upload-area:hover {
+            background: #f8f9fa;
+        }
+
+        .progress-info {
+            margin-top: 16px;
+            padding: 16px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            display: none;
+        }
+
+        .progress-info.active {
+            display: block;
+        }
+
+        .progress-bar {
+            height: 6px;
+            background: #e0e0e0;
+            border-radius: 3px;
+            overflow: hidden;
+            margin-bottom: 8px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: var(--primary-purple);
+            width: 0%;
+            transition: width 0.3s;
+        }
+
+        .spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #c1c1c1;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #a1a1a1;
+        }
+
+        /* Character Arc Studio */
+        .character-arc-section {
+            padding: 16px;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 8px;
+            cursor: pointer;
+            border-radius: 8px;
+            transition: background 0.2s;
+        }
+
+        .section-header:hover {
+            background: #f5f5f5;
+        }
+
+        .section-icon {
+            font-size: 18px;
+        }
+
+        .section-title {
+            flex: 1;
+            font-size: 14px;
+            font-weight: 600;
+            color: #1a1a1a;
+        }
+
+        .section-subtitle {
+            font-size: 12px;
+            color: #666;
+            padding: 0 8px;
+            margin-bottom: 12px;
+        }
+
+        .toggle-arrow {
+            font-size: 12px;
+            transition: transform 0.2s;
+        }
+
+        .toggle-arrow.open {
+            transform: rotate(90deg);
+        }
+
+        .section-content {
+            display: none;
+            padding-top: 8px;
+        }
+
+        .section-content.open {
+            display: block;
+        }
+
+        .character-select {
+            width: 100%;
+            padding: 10px 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            background: white;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-bottom: 16px;
+        }
+
+        .character-select:hover {
+            border-color: var(--primary-purple);
+        }
+
+        .character-select:focus {
+            outline: none;
+            border-color: var(--primary-purple);
+            box-shadow: 0 0 0 3px rgba(91, 60, 250, 0.1);
+        }
+
+        .arc-chart {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+
+        .chart-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: #1a1a1a;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .chart-canvas {
+            width: 100%;
+            height: 150px;
+            background: white;
+            border-radius: 6px;
+            position: relative;
+        }
+
+        .arc-stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            font-size: 12px;
+        }
+
+        .stat-item {
+            background: white;
+            padding: 8px;
+            border-radius: 6px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--primary-purple);
+        }
+
+        .stat-label {
+            color: #666;
+            margin-top: 2px;
+        }
+
+        .library-list-compact {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out;
+        }
+
+        .library-list-compact.expanded {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        /* Character Arc in Sidebar (Compact) */
+        .character-arc-section {
+            border-top: 1px solid #e0e0e0;
+            background: white;
+        }
+
+        .arc-panel-header-compact {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 16px;
+            position: relative;
+        }
+
+        .arc-panel-close {
+            position: absolute;
+            right: 12px;
+            top: 12px;
+            cursor: pointer;
+            font-size: 24px;
+            opacity: 0.9;
+            transition: opacity 0.2s;
+            color: white;
+            font-weight: 300;
+        }
+
+        .arc-panel-close:hover {
+            opacity: 1;
+        }
+
+        .arc-character-name-compact {
+            font-size: 20px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .arc-character-role-compact {
+            font-size: 13px;
+            opacity: 0.9;
+        }
+
+        .arc-panel-content-compact {
+            padding: 16px;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+
+        .arc-section-compact {
+            margin-bottom: 20px;
+        }
+
+        .arc-section-title-compact {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--primary-purple);
+            margin-bottom: 12px;
+        }
+
+        .arc-card-compact {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 12px;
+        }
+
+        .arc-stats-grid-compact {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .arc-stat-card-compact {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 12px;
+            text-align: center;
+        }
+
+        .arc-stat-value-compact {
+            font-size: 32px;
+            font-weight: 700;
+            color: var(--primary-purple);
+            margin-bottom: 4px;
+        }
+
+        .arc-stat-label-compact {
+            font-size: 11px;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .motivation-item-compact {
+            padding: 10px;
+            background: white;
+            border-radius: 6px;
+            margin-bottom: 8px;
+        }
+
+        .motivation-text-compact {
+            font-size: 13px;
+            font-weight: 500;
+            color: #1a1a1a;
+            margin-bottom: 4px;
+        }
+
+        .motivation-type-compact {
+            font-size: 10px;
+            color: white;
+            background: var(--success-green);
+            padding: 2px 6px;
+            border-radius: 3px;
+            display: inline-block;
+        }
+
+        .motivation-type-compact.secondary {
+            background: #999;
+        }
+
+        /* Character Arc Panel (right side) - REMOVE */
+        .character-arc-panel {
+            display: none;
+        }
+
+        .arc-panel-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px 24px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .arc-panel-close {
+            float: right;
+            cursor: pointer;
+            font-size: 20px;
+            opacity: 0.8;
+            transition: opacity 0.2s;
+        }
+
+        .arc-panel-close:hover {
+            opacity: 1;
+        }
+
+        .arc-character-name {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 8px;
+            clear: right;
+        }
+
+        .arc-character-role {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .arc-panel-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px;
+        }
+
+        .arc-section {
+            margin-bottom: 32px;
+        }
+
+        .arc-section-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #667eea;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .arc-card {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 12px;
+        }
+
+        .arc-card-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: #1a1a1a;
+            margin-bottom: 12px;
+        }
+
+        .arc-chart-container {
+            background: white;
+            border-radius: 8px;
+            padding: 16px;
+            height: 200px;
+        }
+
+        .arc-stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .arc-stat-card {
+            background: white;
+            border-radius: 8px;
+            padding: 16px;
+            text-align: center;
+        }
+
+        .arc-stat-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: #667eea;
+            margin-bottom: 4px;
+        }
+
+        .arc-stat-label {
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .motivation-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            background: white;
+            border-radius: 8px;
+            margin-bottom: 8px;
+        }
+
+        .motivation-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 18px;
+            flex-shrink: 0;
+        }
+
+        .motivation-content {
+            flex: 1;
+        }
+
+        .motivation-text {
+            font-size: 14px;
+            font-weight: 500;
+            color: #1a1a1a;
+            margin-bottom: 4px;
+        }
+
+        .motivation-type {
+            font-size: 11px;
+            color: white;
+            background: #34a853;
+            padding: 2px 8px;
+            border-radius: 4px;
+            display: inline-block;
+        }
+
+        .motivation-type.secondary {
+            background: #999;
+        }
+
+
+
+        /* ═══════════════════════════════════════════════════════════════
+           NARRATIVE TIMELINE OVERLAY (Horizontal Scrollable Storyline)
+           ═══════════════════════════════════════════════════════════════ */
+        #timeline-overlay {
+            position: absolute;
+            inset: 0;
+            background: #0d1117;
+            z-index: 20;
+            display: none;
+            flex-direction: column;
+            overflow: hidden;
+            user-select: none;
+        }
+        #timeline-overlay.active { display: flex; }
+
+        .timeline-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 24px;
+            background: #161b22;
+            border-bottom: 1px solid #30363d;
+            flex-shrink: 0;
+            z-index: 5;
+        }
+        .timeline-header-left {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+        .timeline-title {
+            font-size: 15px;
+            font-weight: 700;
+            color: #f0f6fc;
+            letter-spacing: -0.2px;
+        }
+        .timeline-subtitle {
+            font-size: 12px;
+            color: #8b949e;
+            margin-top: 2px;
+        }
+        .timeline-header-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .timeline-nav-btn {
+            background: #21262d;
+            border: 1px solid #30363d;
+            color: #c9d1d9;
+            border-radius: 6px;
+            width: 32px;
+            height: 32px;
+            font-size: 13px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s;
+        }
+        .timeline-nav-btn:hover {
+            background: #30363d;
+            color: #58a6ff;
+            border-color: #58a6ff;
+        }
+        .timeline-close-btn {
+            background: #21262d;
+            border: 1px solid #30363d;
+            color: #c9d1d9;
+            border-radius: 8px;
+            padding: 6px 14px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .timeline-close-btn:hover { background: #30363d; color: #fff; }
+
+        /* Act tabs */
+        .timeline-act-tabs {
+            display: flex;
+            gap: 4px;
+            padding: 6px 24px 0;
+            background: #161b22;
+            border-bottom: 1px solid #30363d;
+            flex-shrink: 0;
+            z-index: 5;
+        }
+        .timeline-tab {
+            padding: 7px 18px;
+            border-radius: 8px 8px 0 0;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            border: 1px solid transparent;
+            border-bottom: none;
+            background: #21262d;
+            color: #8b949e;
+            transition: all 0.2s;
+        }
+        .timeline-tab:hover { background: #30363d; color: #e6edf3; }
+        .timeline-tab.active { background: #0d1117; color: #f0f6fc; border-color: #30363d; border-top: 2px solid #58a6ff; }
+
+        /* Scroll area - Strictly horizontal scrolling, NO vertical scroll */
+        .timeline-scroll-area {
+            flex: 1;
+            overflow-x: auto;
+            overflow-y: hidden;
+            padding: 10px 48px 30px;
+            position: relative;
+            cursor: grab;
+            scroll-behavior: smooth;
+        }
+        .timeline-scroll-area.dragging {
+            cursor: grabbing;
+            scroll-behavior: auto;
+        }
+
+        /* Prominent Horizontal Scrollbar */
+        .timeline-scroll-area::-webkit-scrollbar {
+            height: 12px;
+        }
+        .timeline-scroll-area::-webkit-scrollbar-track {
+            background: #161b22;
+            border-radius: 6px;
+            margin: 0 48px;
+        }
+        .timeline-scroll-area::-webkit-scrollbar-thumb {
+            background: #30363d;
+            border-radius: 6px;
+            border: 2px solid #161b22;
+        }
+        .timeline-scroll-area::-webkit-scrollbar-thumb:hover {
+            background: #58a6ff;
+        }
+
+        /* The horizontal rail container */
+        .timeline-rail {
+            position: relative;
+            min-width: 900px;
+            width: max-content;
+            height: 420px;
+            min-height: 420px;
+            margin: 0;
+        }
+
+        /* Central axis line */
+        .timeline-axis {
+            position: absolute;
+            left: 0; right: 0;
+            top: 200px;
+            height: 3px;
+            background: #484f58;
+            transform: translateY(-50%);
+            z-index: 1;
+        }
+
+        /* Axis ticks */
+        .timeline-tick {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 2px;
+            height: 16px;
+            background: #8b949e;
+        }
+        .timeline-tick-label {
+            position: absolute;
+            top: 50%;
+            transform: translateX(-50%);
+            margin-top: 14px;
+            font-size: 11px;
+            font-weight: 600;
+            color: #8b949e;
+            white-space: nowrap;
+        }
+
+        /* Event Pill Bubble Card */
+        .tl-event {
+            position: absolute;
+            width: 156px;
+            cursor: pointer;
+            z-index: 3;
+            transition: transform 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .tl-event:hover {
+            transform: scale(1.08) translateY(-2px);
+            z-index: 25 !important;
+        }
+
+        .tl-event-pill {
+            border-radius: 16px;
+            padding: 8px 12px;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.4);
+            border: 1.5px solid;
+            transition: all 0.2s;
+        }
+        .tl-event:hover .tl-event-pill {
+            box-shadow: 0 6px 20px rgba(0,0,0,0.65);
+        }
+
+        .tl-event-name {
+            font-weight: 700;
+            font-size: 11px;
+            line-height: 1.35;
+            display: -webkit-box;
+            -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            letter-spacing: -0.1px;
+        }
+        .tl-event.major .tl-event-name {
+            font-size: 11.5px;
+            -webkit-line-clamp: 4;
+        }
+
+        .tl-event-meta {
+            margin-top: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 6px;
+            font-size: 9px;
+            opacity: 0.85;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .tl-event-loc {
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .tl-event-part {
+            margin-top: 2px;
+            font-size: 9px;
+            opacity: 0.7;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        /* Connector Line */
+        .tl-connector {
+            position: absolute;
+            width: 2px;
+            transform: translateX(-50%);
+            z-index: 2;
+            pointer-events: none;
+            opacity: 0.65;
+        }
+
+        /* Dot on Axis */
+        .tl-dot {
+            position: absolute;
+            border-radius: 50%;
+            border: 2px solid #0d1117;
+            transform: translate(-50%, -50%);
+            z-index: 4;
+            transition: transform 0.15s;
+        }
+        .tl-event:hover + .tl-dot, .tl-dot:hover {
+            transform: translate(-50%, -50%) scale(1.4);
+        }
+
+        /* Floating Scroll Arrows */
+        .tl-floating-nav {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: rgba(22, 27, 34, 0.9);
+            border: 1px solid #30363d;
+            color: #f0f6fc;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            z-index: 15;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+            transition: all 0.2s;
+            backdrop-filter: blur(6px);
+        }
+        .tl-floating-nav:hover {
+            background: #21262d;
+            border-color: #58a6ff;
+            color: #58a6ff;
+            transform: translateY(-50%) scale(1.1);
+        }
+        .tl-floating-prev { left: 16px; }
+        .tl-floating-next { right: 16px; }
+
+        /* Legend */
+        .timeline-legend {
+            position: absolute;
+            bottom: 12px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 20px;
+            font-size: 11px;
+            color: #8b949e;
+            background: rgba(22, 27, 34, 0.88);
+            padding: 5px 16px;
+            border-radius: 20px;
+            border: 1px solid #30363d;
+            backdrop-filter: blur(6px);
+            z-index: 10;
+            pointer-events: none;
+        }
+        .legend-item { display: flex; align-items: center; gap: 6px; }
+        .legend-dot { width: 9px; height: 9px; border-radius: 50%; }
+
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="sidebar-resize-handle" id="sidebar-resize-handle"></div>
+            <div class="sidebar-header">
+                <div class="logo">Script<span>Graph</span></div>
+                <button class="btn btn-primary" onclick="openUploadModal()">
+                    📤 Upload from PC
+                </button>
+            </div>
+
+            <div class="library-section">
+                <div class="section-header" onclick="toggleLibraryList()">
+                    <span class="toggle-arrow" id="library-arrow">▶</span>
+                    <span class="section-title">My Documents</span>
+                </div>
+                <div class="library-list-compact" id="library-list">
+                    <div class="empty-library">
+                        <div>📚</div>
+                        <div>Loading...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Character Arc Studio (under documents) -->
+            <div class="character-arc-section" id="character-arc-section" style="display: none;">
+                <div class="arc-panel-header-compact">
+                    <span class="arc-panel-close" onclick="closeCharacterArc()">×</span>
+                    <div class="arc-character-name-compact" id="arc-character-name-compact">Character Name</div>
+                    <div class="arc-character-role-compact" id="arc-character-role-compact">Character</div>
+                </div>
+                
+                <div class="arc-panel-content-compact">
+                    <!-- Stats -->
+                    <div class="arc-section-compact">
+                        <div class="arc-section-title-compact">
+                            📈 Metrics
+                        </div>
+                        <div class="arc-stats-grid-compact">
+                            <div class="arc-stat-card-compact">
+                                <div class="arc-stat-value-compact" id="arc-total-scenes-compact">-</div>
+                                <div class="arc-stat-label-compact">SCENES</div>
+                            </div>
+                            <div class="arc-stat-card-compact">
+                                <div class="arc-stat-value-compact" id="arc-total-events-compact">-</div>
+                                <div class="arc-stat-label-compact">EVENTS</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Key Motivations -->
+                    <div class="arc-section-compact">
+                        <div class="arc-section-title-compact">
+                            🎯 Key Motivations
+                        </div>
+                        <div class="arc-card-compact">
+                            <div id="motivations-container-compact">
+                                <div class="motivation-item-compact">
+                                    <div class="motivation-text-compact">Primary goal</div>
+                                    <span class="motivation-type-compact">Primary</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar-footer">
+                <a href="http://localhost:7474" target="_blank" class="neo4j-link">
+                    🔗 Open Neo4j Browser
+                </a>
+            </div>
+        </div>
+
+        <!-- Main Area -->
+        <div class="main-area">
+            <div class="content-split">
+                <!-- Graph Visualization -->
+                <div class="graph-panel">
+                    <div class="graph-resize-handle" id="graph-resize-handle"></div>
+                    <div class="graph-header">
+                        <div class="graph-header-top">
+                            <div class="graph-title-group">
+                                <div class="graph-title">📊 Knowledge Graph</div>
+                                <div class="graph-subtitle" id="graph-subtitle">Level 1: Story Overview (Acts, Major Plot Events, Principal Characters)</div>
+                            </div>
+                            <div class="graph-controls">
+                                <span class="graph-stats-badge" id="graph-stats">Loading...</span>
+                                <button class="btn-icon" id="download-graph-btn" onclick="downloadGraph()" disabled>
+                                    📥 Download
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Level Indicator (auto-updates as user clicks nodes) -->
+                        <div class="level-selector-bar">
+                            <div class="level-indicator">
+                                <span class="level-indicator-label" id="level-indicator-label">Story Overview</span>
+                            </div>
+                            <div class="level-actions">
+                                <button class="btn-subtle" onclick="collapseToOverview()" title="Back to Story Overview">
+                                    ⬅ Back to Overview
+                                </button>
+                                <button class="btn-subtle" id="reset-filter-btn" onclick="resetFilter()" style="display: none;">
+                                    🔄 Reset Filter
+                                </button>
+                                <button class="btn-subtle" onclick="showCharacterWeb()" title="Show all characters and their relationships">
+                                    👥 Characters
+                                </button>
+                                <button class="btn-subtle" onclick="showActTimeline('all')" title="View narrative timeline of all events across scenes">
+                                    📜 Timeline
+                                </button>
+                                <button class="btn-subtle" onclick="resetGraphView()" title="Center graph">
+                                    🎯 Center
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div id="graph-container">
+                        <div class="graph-empty">
+                            <div style="font-size: 48px;">🕸️</div>
+                            <div>Load a screenplay to see the knowledge graph</div>
+                        </div>
+                    </div>
+
+
+                    <!-- Narrative Timeline Overlay (toggled by clicking Act nodes) -->
+                    <div id="timeline-overlay">
+                        <div class="timeline-header">
+                            <div class="timeline-header-left">
+                                <div>
+                                    <div class="timeline-title" id="tl-title">Narrative Timeline</div>
+                                    <div class="timeline-subtitle" id="tl-subtitle">Loading...</div>
+                                </div>
+                            </div>
+                            <div class="timeline-header-actions">
+                                <button class="timeline-nav-btn" onclick="scrollTimelineBy(-600)" title="Scroll Left (Mouse Wheel / Left Arrow)">◀</button>
+                                <button class="timeline-nav-btn" onclick="scrollTimelineBy(600)" title="Scroll Right (Mouse Wheel / Right Arrow)">▶</button>
+                                <button class="timeline-close-btn" onclick="closeTimeline()">&#11013; Back to Graph</button>
+                            </div>
+                        </div>
+                        <div class="timeline-act-tabs">
+                            <div class="timeline-tab" id="tl-tab-act_1" onclick="switchTimelineAct('act_1')">Act I: Setup</div>
+                            <div class="timeline-tab" id="tl-tab-act_2" onclick="switchTimelineAct('act_2')">Act II: Confrontation</div>
+                            <div class="timeline-tab" id="tl-tab-act_3" onclick="switchTimelineAct('act_3')">Act III: Resolution</div>
+                            <div class="timeline-tab" id="tl-tab-all" onclick="switchTimelineAct('all')">📜 All Acts (Full Story)</div>
+                        </div>
+                        <!-- Floating Left / Right Nav Arrows -->
+                        <button class="tl-floating-nav tl-floating-prev" onclick="scrollTimelineBy(-700)" title="Scroll Left (Mouse Wheel / Left Arrow)">◀</button>
+                        <button class="tl-floating-nav tl-floating-next" onclick="scrollTimelineBy(700)" title="Scroll Right (Mouse Wheel / Right Arrow)">▶</button>
+
+                        <div class="timeline-scroll-area" id="tl-scroll-area">
+                            <div class="timeline-rail" id="tl-rail">
+                                <div class="timeline-axis"></div>
+                            </div>
+                        </div>
+                        <div class="timeline-legend">
+                            <div class="legend-item">
+                                <div class="legend-dot" style="background:#e11d48"></div>
+                                <span>Major Event</span>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-dot" style="background:#0369a1"></div>
+                                <span>Secondary Event (above)</span>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-dot" style="background:#b45309"></div>
+                                <span>Secondary Event (below)</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Level 3 Scene Detail Inspector Drawer -->
+                    <div class="scene-inspector-panel" id="scene-inspector-panel" style="display: none;">
+                        <div class="scene-inspector-header">
+                            <div class="scene-header-info">
+                                <span class="scene-pill" id="scene-number-pill">SCENE 1</span>
+                                <span class="scene-page-pill" id="scene-page-pill">Page 1</span>
+                                <span class="scene-header-text" id="scene-header-text">INT. LOCATION - NIGHT</span>
+                            </div>
+                            <div class="scene-header-actions">
+                                <button class="btn-xs" onclick="collapseSelectedScene()" id="collapse-scene-btn">➖ Collapse Scene</button>
+                                <button class="scene-close-btn" onclick="closeSceneInspector()">×</button>
+                            </div>
+                        </div>
+                        <div class="scene-inspector-body">
+                            <div class="scene-section">
+                                <div class="scene-section-title">📜 Screenplay Excerpt & Dialogue</div>
+                                <div class="scene-script-container" id="scene-script-text">
+                                    Loading excerpt...
+                                </div>
+                            </div>
+                            <div class="scene-grid-cols">
+                                <div class="scene-section">
+                                    <div class="scene-section-title">👥 Participants</div>
+                                    <div class="scene-pills-row" id="scene-participants-list"></div>
+                                </div>
+                                <div class="scene-section">
+                                    <div class="scene-section-title">⚡ Events & Actions</div>
+                                    <div class="scene-events-list" id="scene-events-list"></div>
+                                </div>
+                            </div>
+                            <div class="scene-section">
+                                <div class="scene-section-title">
+                                    <span>🔗 Supporting Facts & Evidence</span>
+                                    <span class="fact-count-badge" id="scene-fact-count">0 facts</span>
+                                </div>
+                                <div class="scene-facts-table-wrap">
+                                    <table class="scene-facts-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Fact ID</th>
+                                                <th>Subject</th>
+                                                <th>Relationship</th>
+                                                <th>Object</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="scene-facts-tbody"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Chat Panel -->
+                <div class="chat-panel">
+                    <div class="chat-header">
+                        <div class="current-doc empty" id="current-doc">
+                            No screenplay loaded
+                        </div>
+                    </div>
+
+                    <div class="chat-area" id="chat-area">
+                        <div class="empty-chat">
+                            <div class="empty-chat-icon">💬</div>
+                            <div>Ask questions about the screenplay</div>
+                        </div>
+                    </div>
+
+                    <div class="input-area">
+                        <div class="input-wrapper">
+                            <input type="text" 
+                                   class="input-field" 
+                                   id="question-input"
+                                   placeholder="Ask a question..."
+                                   onkeypress="if(event.key==='Enter') askQuestion()"
+                                   disabled>
+                            <button class="send-btn" id="send-btn" onclick="askQuestion()" disabled>
+                                ➤
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Upload Modal -->
+    <div class="modal" id="upload-modal">
+        <div class="modal-content">
+            <div class="modal-header">Upload Screenplay</div>
+            
+            <div class="upload-area" onclick="document.getElementById('file-input').click()">
+                <div style="font-size: 48px; margin-bottom: 16px;">📄</div>
+                <div style="font-weight: 600; margin-bottom: 8px;">Click to upload PDF</div>
+                <div style="font-size: 14px; color: #666;">Screenplay format supported</div>
+                <input type="file" id="file-input" accept=".pdf" style="display: none;" onchange="uploadFile(event)">
+            </div>
+
+            <div class="progress-info" id="progress-info">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progress-fill"></div>
+                </div>
+                <div id="progress-message" style="font-size: 14px; color: #666; text-align: center;"></div>
+            </div>
+
+            <div style="margin-top: 24px;">
+                <button class="btn" onclick="closeUploadModal()" style="width: 100%;">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentDocument = null;
+        let messages = [];
+        let network = null;
+        let allNodes = null;
+        let allEdges = null;
+        let graphMetadata = null; // Store graph metadata
+        let libraryExpanded = false;
+        let currentCharacterArc = null; // Currently displayed character
+        let isResizing = false;
+
+        // Download graph as image
+        function downloadGraph() {
+            if (!network) {
+                alert('No graph to download');
+                return;
+            }
+            
+            try {
+                // Get canvas from vis.js network
+                const canvas = network.canvas.frame.canvas;
+                
+                // Create download link
+                const link = document.createElement('a');
+                link.download = `knowledge-graph-${currentDocument.title.replace(/[^a-z0-9]/gi, '-')}.png`;
+                link.href = canvas.toDataURL('image/png');
+                link.click();
+                
+                console.log('Graph downloaded successfully');
+            } catch (error) {
+                console.error('Error downloading graph:', error);
+                alert('Failed to download graph: ' + error.message);
+            }
+        }
+
+        // Multi-level graph state
+        let currentGraphLevel = "1"; // "1" = Overview, "2" = Subgraphs, "3" = Scene Detail
+        let expandedNodeIds = new Set();
+        let expandedSubgraphs = new Map(); // nodeId -> { nodeIds: Set, edgeIds: Set }
+        let selectedSceneNumber = null;
+        let nodeDataMap = new Map();
+        let filteredNodeId = null;
+        let fullDocumentNodes = [];
+        let fullDocumentEdges = [];
+
+        // Switch Graph Level (Level 1, 2, 3)
+        async function switchGraphLevel(level) {
+            currentGraphLevel = String(level);
+
+            // Update level indicator label and subtitle
+            const subtitle = document.getElementById('graph-subtitle');
+            const indLabel = document.getElementById('level-indicator-label');
+            if (level === '1') {
+                if (indLabel) indLabel.textContent = 'Story Overview';
+                if (subtitle) subtitle.textContent = 'Level 1: Story Overview — Major Characters & Plot Events';
+                closeSceneInspector();
+                expandedNodeIds.clear();
+            } else if (level === '2') {
+                if (indLabel) indLabel.textContent = 'Character & Event Subgraphs';
+                if (subtitle) subtitle.textContent = 'Level 2: Character & Event Subgraphs — Click a character to expand connections';
+            } else if (level === '3') {
+                if (indLabel) indLabel.textContent = 'Scene Detail';
+                if (subtitle) subtitle.textContent = 'Level 3: Scene Detail — Click an event to inspect dialogue & evidence';
+            }
+
+            await loadGraphData(currentGraphLevel);
+        }
+
+        // Expand All subgraphs to Level 3
+        function expandAllLevels() {
+            switchGraphLevel('3');
+        }
+
+        // Collapse back to Level 1 Story Overview
+        function collapseToOverview() {
+            closeSceneInspector();
+            expandedNodeIds.clear();
+            expandedSubgraphs.clear();
+            filteredNodeId = null;
+            // Force full graph reload at level 1
+            fullDocumentNodes = [];
+            fullDocumentEdges = [];
+            switchGraphLevel('1');
+        }
+
+        // Center graph in viewport
+        function resetGraphView() {
+            if (network) {
+                network.fit({
+                    animation: {
+                        duration: 500,
+                        easingFunction: 'easeInOutQuad'
+                    }
+                });
+            }
+        }
+
+        // Copy Fact ID to clipboard
+        function copyFactId(factId, btnElement) {
+            navigator.clipboard.writeText(factId).then(() => {
+                const originalText = btnElement ? btnElement.textContent : '';
+                if (btnElement) btnElement.textContent = '✓ Copied!';
+                setTimeout(() => {
+                    if (btnElement) btnElement.textContent = originalText;
+                }, 1500);
+            }).catch(err => {
+                console.error('Failed to copy fact id:', err);
+            });
+        }
+
+        // Initialize Graph Vis.js Network
+        function initGraph() {
+            if (!allNodes || !allEdges) {
+                console.error('Cannot init graph: nodes or edges not loaded');
+                return;
+            }
+
+            const container = document.getElementById('graph-container');
+            if (!container) return;
+
+            const emptyState = container.querySelector('.graph-empty');
+            if (emptyState) emptyState.remove();
+
+            const data = {
+                nodes: allNodes,
+                edges: allEdges
+            };
+
+            const options = {
+                nodes: {
+                    shape: 'dot',
+                    font: {
+                        size: 14,
+                        color: '#ffffff',
+                        face: 'Arial, sans-serif',
+                        strokeWidth: 3,
+                        strokeColor: '#000000'
+                    },
+                    shadow: {
+                        enabled: true,
+                        color: 'rgba(0,0,0,0.25)',
+                        size: 10,
+                        x: 2,
+                        y: 2
+                    }
+                },
+                edges: {
+                    width: 2,
+                    arrows: {
+                        to: { enabled: true, scaleFactor: 0.75 }
+                    },
+                    color: {
+                        color: '#9ca3af',
+                        highlight: '#ff9800',
+                        hover: '#ff9800'
+                    },
+                    font: {
+                        size: 11,
+                        align: 'top',
+                        color: '#374151',
+                        background: 'rgba(255,255,255,0.92)',
+                        strokeWidth: 1,
+                        strokeColor: '#ffffff'
+                    },
+                    smooth: {
+                        type: 'continuous',
+                        roundness: 0.4
+                    }
+                },
+                physics: {
+                    enabled: true,
+                    stabilization: {
+                        iterations: 35,
+                        updateInterval: 10
+                    },
+                    barnesHut: {
+                        gravitationalConstant: -12000,
+                        centralGravity: 0.3,
+                        springLength: 180,
+                        springConstant: 0.04,
+                        damping: 0.35,
+                        avoidOverlap: 0.9
+                    }
+                },
+                interaction: {
+                    hover: true,
+                    tooltipDelay: 120,
+                    zoomView: true,
+                    dragView: true
+                },
+                layout: {
+                    improvedLayout: true
+                }
+            };
+
+            try {
+                network = new vis.Network(container, data, options);
+
+                network.on('stabilizationIterationsDone', function() {
+                    network.setOptions({ physics: { enabled: false } });
+                });
+
+                // Node Click Handler for Multi-Level Expansion / Collapse
+                network.on('click', async function(params) {
+                    if (params.nodes.length > 0) {
+                        const nodeId = params.nodes[0];
+                        const node = allNodes.get(nodeId);
+                        const rawMeta = nodeDataMap.get(String(nodeId)) || {};
+
+                        if (!node) return;
+
+                        // CASE 1: Act Node → Open Narrative Timeline
+                        if (node.nodeType === 'Act' || rawMeta.is_act) {
+                            // Determine which act id
+                            const aId = rawMeta.id || nodeId;
+                            const aIdStr = String(aId).toLowerCase();
+                            let actCode = 'act_1';
+                            if (aIdStr.includes('2') || aIdStr.includes('ii') || aIdStr.includes('confrontation')) actCode = 'act_2';
+                            else if (aIdStr.includes('3') || aIdStr.includes('iii') || aIdStr.includes('resolution')) actCode = 'act_3';
+                            showActTimeline(actCode);
+                            return;
+                        }
+
+                        // CASE 2: Character Node → show full ego-network (every single connection)
+                        if (node.nodeType === 'Character') {
+                            showCharacterArc(node.label);
+                            await showCharacterEgoNetwork(nodeId, node.label);
+                            return;
+                        }
+
+                        // CASE 3: Event Node -> Expand Scene node and Open Scene Detail Inspector (Level 3)
+                        if (node.nodeType === 'Event') {
+                            await handleEventClick(node, rawMeta);
+                            return;
+                        }
+
+                        // CASE 4: Scene Node -> Open Scene Detail Inspector (Level 3)
+                        if (node.nodeType === 'Scene' || rawMeta.is_scene) {
+                            const sceneNum = rawMeta.scene_number || node.sceneNumber;
+                            openSceneInspector(null, sceneNum);
+                            return;
+                        }
+
+                        // Default filter behavior for Locations/Objects
+                        filterByNode(nodeId);
+
+                    } else {
+                        // Clicked empty space
+                        resetFilter();
+                    }
+                });
+
+                updateGraphStats();
+                document.getElementById('download-graph-btn').disabled = false;
+
+            } catch (error) {
+                console.error('Error initializing vis.js network:', error);
+                container.innerHTML = `<div style="padding: 40px; text-align: center; color: red;">Error initializing graph: ${error.message}</div>`;
+            }
+        }
+
+        // Handle Event Click: Expand Scene Node & Open Inspector
+        async function handleEventClick(node, rawMeta) {
+            const eventName = node.label;
+            const chunkId = rawMeta.chunk_id || node.chunkId;
+            const sceneNodeId = `scene_${chunkId || node.id}`;
+
+            // If scene node already shown, clicking again collapses it
+            if (allNodes.get(sceneNodeId)) {
+                allNodes.remove(sceneNodeId);
+                closeSceneInspector();
+                return;
+            }
+
+            // Dynamically reveal scene node linked to this event
+            allNodes.add({
+                id: sceneNodeId,
+                label: `🎬 Scene ${chunkId || ''}: ${rawMeta.location || 'Scene'}`,
+                title: `Source Scene ${chunkId || ''}\nClick to inspect dialogue & details`,
+                shape: 'box',
+                margin: 8,
+                size: 34,
+                color: {
+                    background: '#059669',
+                    border: '#34d399',
+                    highlight: { background: '#10b981', border: '#059669' }
+                },
+                font: { size: 12, color: '#ffffff', bold: true },
+                nodeType: 'Scene',
+                sceneNumber: chunkId
+            });
+
+            allEdges.add({
+                id: `link_${node.id}_${sceneNodeId}`,
+                from: node.id,
+                to: sceneNodeId,
+                label: 'OCCURS_IN',
+                color: { color: '#10b981', highlight: '#059669' },
+                width: 2,
+                dashes: true,
+                title: `OCCURS_IN Scene ${chunkId || ''}`
+            });
+
+            if (network) {
+                network.focus(node.id, {
+                    scale: 1.25,
+                    animation: { duration: 500, easingFunction: 'easeInOutQuad' }
+                });
+            }
+
+            // Open Scene Detail Inspector (Level 3)
+            const _l3lbl = document.getElementById("level-indicator-label");
+            if (_l3lbl) _l3lbl.textContent = "Scene Detail";
+            await openSceneInspector(eventName, chunkId);
+        }
+
+        
+        // Show character's complete ego-network: replace graph with ALL their connections
+        async function showCharacterEgoNetwork(nodeId, nodeLabel) {
+            const nid = String(nodeId);
+
+            // Update level indicator
+            const indLabel = document.getElementById('level-indicator-label');
+            const subtitle = document.getElementById('graph-subtitle');
+            if (indLabel) indLabel.textContent = nodeLabel + ' — All Connections';
+            if (subtitle) subtitle.textContent = nodeLabel + ' — every event, character and relationship';
+
+            // Show loading state
+            const graphEl = document.getElementById('mynetwork');
+            if (graphEl) graphEl.style.opacity = '0.5';
+
+            // ── Fetch ALL 1-hop connections from Neo4j via backend ──────────
+            let neighborNodes = [];
+            let neighborEdges = [];
+            try {
+                const resp = await fetch(`/api/graph-expand?node_id=${encodeURIComponent(nid)}`);
+                if (resp.ok) {
+                    const data = await resp.json();
+                    neighborNodes = data.nodes || [];
+                    neighborEdges = data.edges || [];
+                    console.log(`[Ego/${nodeLabel}] backend returned ${neighborNodes.length} nodes, ${neighborEdges.length} edges`);
+                } else {
+                    console.warn('[Ego] graph-expand returned', resp.status);
+                }
+            } catch(err) {
+                console.error('[Ego] fetch error:', err);
+            }
+
+            if (graphEl) graphEl.style.opacity = '1';
+
+            // ── Add the focal character node itself ──────────────────────────
+            const focalFromMap = nodeDataMap.get(nid);
+            const focalNode = focalFromMap
+                ? { ...focalFromMap }
+                : { id: nid, label: nodeLabel, type: 'Character', node_label: 'Entity' };
+
+            const allEgoNodes = [focalNode, ...neighborNodes];
+            const allEgoEdges = neighborEdges;
+
+            // ── Deduplicate ────────────────────────────────────────────────
+            const seenN = new Set(), seenE = new Set();
+            const uniqueNodes = allEgoNodes.filter(n => {
+                const k = String(n.id); if (seenN.has(k)) return false; seenN.add(k); return true;
+            });
+            const uniqueEdges = allEgoEdges.filter((e, i) => {
+                const k = String(e.id || 'ego_' + i); if (seenE.has(k)) return false; seenE.add(k); return true;
+            });
+
+            console.log(`[Ego/${nodeLabel}] rendering ${uniqueNodes.length} nodes, ${uniqueEdges.length} edges`);
+
+            // ── Build vis.DataSet ──────────────────────────────────────────
+            allNodes = new vis.DataSet(uniqueNodes.map(n => {
+                if (String(n.id) === nid) {
+                    return {
+                        ...formatVisNode(n),
+                        size: 54,
+                        borderWidth: 6,
+                        color: { background: '#fd9d31', border: '#ff5722',
+                                 highlight: { background: '#ffd54f', border: '#ff5722' } },
+                        font: { size: 16, color: '#ffffff', bold: true, strokeWidth: 4, strokeColor: '#000' }
+                    };
+                }
+                return formatVisNode(n);
+            }));
+            allEdges = new vis.DataSet(uniqueEdges.map((e, i) => formatVisEdge(e, e.id || 'ego_' + i)));
+
+            if (network) { network.destroy(); network = null; }
+            expandedNodeIds.clear();
+            expandedSubgraphs.clear();
+            filteredNodeId = nid;
+
+            initGraph();
+
+            // Focus on focal node
+            setTimeout(() => {
+                if (network) {
+                    network.focus(nid, { scale: 0.8, animation: { duration: 600, easingFunction: 'easeInOutQuad' } });
+                }
+            }, 300);
+
+            updateGraphStats();
+        }
+
+        // ── Character Web: show ALL characters and their inter-character edges ──
+        async function showCharacterWeb() {
+            // Update indicator immediately
+            const indLabel = document.getElementById('level-indicator-label');
+            if (indLabel) indLabel.textContent = 'Character Web';
+            const subtitle = document.getElementById('graph-subtitle');
+            if (subtitle) subtitle.textContent = 'All characters and their direct relationships';
+
+            // Fetch ALL characters from backend (not just L1 major ones)
+            let charNodes = [], charEdges = [];
+            try {
+                const resp = await fetch('/api/all-characters');
+                if (resp.ok) {
+                    const data = await resp.json();
+                    charNodes = data.nodes || [];
+                    charEdges = data.edges || [];
+                    console.log(`[CharWeb] backend: ${charNodes.length} characters, ${charEdges.length} edges`);
+                } else {
+                    console.warn('[CharWeb] /api/all-characters returned', resp.status);
+                }
+            } catch(err) {
+                console.error('[CharWeb] fetch error:', err);
+            }
+
+            // Deduplicate
+            const seenN = new Set(), seenE = new Set();
+            const uniqueNodes = charNodes.filter(n => {
+                const k = String(n.id); if (seenN.has(k)) return false; seenN.add(k); return true;
+            });
+            const uniqueEdges = charEdges.filter((e, i) => {
+                const k = String(e.id || 'cw_' + i); if (seenE.has(k)) return false; seenE.add(k); return true;
+            });
+
+            if (network) { network.destroy(); network = null; }
+            expandedNodeIds.clear();
+            expandedSubgraphs.clear();
+            filteredNodeId = null;
+
+            allNodes = new vis.DataSet(uniqueNodes.map(n => formatVisNode(n)));
+            allEdges = new vis.DataSet(uniqueEdges.map((e, i) => formatVisEdge(e, e.id || 'cw_' + i)));
+
+            initGraph();
+            updateGraphStats();
+        }
+
+        // Expand a character's immediate neighborhood (Level 2 subgraph) [legacy]
+        async function expandNodeSubgraph(nodeId, nodeLabel) {
+            const addedNodeIds = new Set();
+            const addedEdgeIds = new Set();
+
+            // Try backend API first
+            let neighborsData = null;
+            try {
+                const response = await fetch(`/api/graph-expand?node_id=${encodeURIComponent(nodeId)}`);
+                if (response.ok) {
+                    neighborsData = await response.json();
+                }
+            } catch (err) {
+                console.log('Graph expand API unavailable, using client dataset');
+            }
+
+            // If API didn't return data, use client-side fullDocumentNodes & fullDocumentEdges
+            if (!neighborsData || !neighborsData.nodes || neighborsData.nodes.length === 0) {
+                const nid = String(nodeId);
+                const nlbl = (nodeLabel || '').toUpperCase();
+                const neighborIds = new Set();
+                const matchedEdges = [];
+
+                fullDocumentEdges.forEach(e => {
+                    const f = String(e.from);
+                    const t = String(e.to);
+                    if (f === nid || (nodeDataMap.get(f) && (nodeDataMap.get(f).label || '').toUpperCase() === nlbl)) {
+                        neighborIds.add(t);
+                        matchedEdges.push(e);
+                    } else if (t === nid || (nodeDataMap.get(t) && (nodeDataMap.get(t).label || '').toUpperCase() === nlbl)) {
+                        neighborIds.add(f);
+                        matchedEdges.push(e);
+                    }
+                });
+
+                // Pick up to 8 top connected neighbors
+                const candidateNodes = fullDocumentNodes.filter(n => neighborIds.has(String(n.id))).slice(0, 8);
+                neighborsData = {
+                    nodes: candidateNodes,
+                    edges: matchedEdges.filter(e => neighborIds.has(String(e.from)) || neighborIds.has(String(e.to)))
+                };
+            }
+
+            // Add nodes to Vis.js
+            (neighborsData.nodes || []).forEach(n => {
+                const sId = String(n.id);
+                if (!allNodes.get(sId)) {
+                    nodeDataMap.set(sId, n);
+                    allNodes.add(formatVisNode(n));
+                    addedNodeIds.add(sId);
+                }
+            });
+
+            // Add edges to Vis.js
+            (neighborsData.edges || []).forEach((e, idx) => {
+                const edgeId = e.id || `exp_edge_${nodeId}_${idx}`;
+                if (!allEdges.get(edgeId)) {
+                    allEdges.add(formatVisEdge(e, edgeId));
+                    addedEdgeIds.add(edgeId);
+                }
+            });
+
+            expandedSubgraphs.set(nodeId, { nodeIds: addedNodeIds, edgeIds: addedEdgeIds });
+            expandedNodeIds.add(nodeId);
+            const _l2lbl = document.getElementById("level-indicator-label");
+            if (_l2lbl) _l2lbl.textContent = "Character & Event Subgraphs";
+
+            // Highlight expanded character with glowing orange border
+            const currentNode = allNodes.get(nodeId);
+            if (currentNode) {
+                allNodes.update({
+                    id: nodeId,
+                    borderWidth: 6,
+                    color: {
+                        background: '#5b3cfa',
+                        border: '#ff9800'
+                    }
+                });
+            }
+
+            if (network) {
+                network.focus(nodeId, {
+                    scale: 1.25,
+                    animation: { duration: 500, easingFunction: 'easeInOutQuad' }
+                });
+            }
+
+            updateGraphStats();
+        }
+
+        // Collapse a character's expanded subgraph smoothly without reload
+        function collapseNodeSubgraph(nodeId) {
+            const expanded = expandedSubgraphs.get(nodeId);
+            if (expanded) {
+                expanded.nodeIds.forEach(id => {
+                    if (allNodes.get(id)) allNodes.remove(id);
+                });
+                expanded.edgeIds.forEach(id => {
+                    if (allEdges.get(id)) allEdges.remove(id);
+                });
+                expandedSubgraphs.delete(nodeId);
+            }
+            expandedNodeIds.delete(nodeId);
+
+            // Restore character border
+            const currentNode = allNodes.get(nodeId);
+            if (currentNode) {
+                allNodes.update({
+                    id: nodeId,
+                    borderWidth: 4,
+                    color: {
+                        background: '#5b3cfa',
+                        border: '#00f2fe'
+                    }
+                });
+            }
+
+            if (network) {
+                network.fit({
+                    animation: { duration: 500, easingFunction: 'easeInOutQuad' }
+                });
+            }
+
+            updateGraphStats();
+        }
+
+        // Open Scene Detail Inspector (Level 3)
+        async function openSceneInspector(eventName = null, chunkId = null) {
+            const panel = document.getElementById('scene-inspector-panel');
+            if (!panel) return;
+
+            panel.style.display = 'flex';
+            document.getElementById('scene-script-text').textContent = 'Loading scene screenplay excerpt...';
+            document.getElementById('scene-facts-tbody').innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 12px; color: #999;">Loading supporting facts...</td></tr>';
+
+            try {
+                let url = '/api/scene-detail';
+                if (eventName) {
+                    url += `?event_name=${encodeURIComponent(eventName)}`;
+                } else if (chunkId) {
+                    url += `?scene_number=${chunkId}`;
+                }
+
+                let data = null;
+                try {
+                    const response = await fetch(url);
+                    if (response.ok) {
+                        data = await response.json();
+                    }
+                } catch (e) {
+                    console.log('Scene detail fetch failed, using fallback');
+                }
+
+                if (!data) {
+                    // Fallback using nodeDataMap and fullDocumentEdges
+                    const evNode = Array.from(nodeDataMap.values()).find(n => (n.label || '').toUpperCase() === (eventName || '').toUpperCase()) || {};
+                    const scNum = chunkId || evNode.chunk_id || 1;
+                    const connectedFacts = fullDocumentEdges.filter(e => {
+                        const f = String(e.from);
+                        const t = String(e.to);
+                        const fNode = nodeDataMap.get(f) || {};
+                        const tNode = nodeDataMap.get(t) || {};
+                        return fNode.label === eventName || tNode.label === eventName;
+                    }).slice(0, 10);
+
+                    data = {
+                        scene_number: scNum,
+                        page: evNode.page || Math.max(1, Math.round(scNum * 0.8)),
+                        int_ext: 'INT.',
+                        location: evNode.location || 'SCREENPLAY SCENE',
+                        time: 'DAY/NIGHT',
+                        script_text: evNode.description || `[Scene ${scNum} Action]\n${eventName} takes place with significant consequences for the story arc.`,
+                        participants: evNode.participants || [],
+                        events: [{ name: eventName, description: evNode.description || '' }],
+                        facts: connectedFacts.map(e => ({
+                            fact_id: e.fact_id || `fact_${e.from}_${e.to}`,
+                            source: (nodeDataMap.get(String(e.from)) || {}).label || String(e.from),
+                            relation: e.label || e.type || 'CONNECTS',
+                            target: (nodeDataMap.get(String(e.to)) || {}).label || String(e.to)
+                        }))
+                    };
+                }
+
+                selectedSceneNumber = data.scene_number;
+
+                // Set headers
+                document.getElementById('scene-number-pill').textContent = `SCENE ${data.scene_number}`;
+                document.getElementById('scene-page-pill').textContent = `Page ${data.page}`;
+                document.getElementById('scene-header-text').textContent = `${data.int_ext} ${data.location} - ${data.time}`;
+
+                // Render Script Excerpt
+                document.getElementById('scene-script-text').textContent = data.script_text || 'No screenplay text available for this scene.';
+
+                // Render Participants
+                const participantsContainer = document.getElementById('scene-participants-list');
+                // Gather participants from multiple sources
+                let allParticipants = new Set();
+                // From chunk metadata
+                (data.participants || []).forEach(p => { if (p && p.length > 1) allParticipants.add(String(p).trim()); });
+                // From events in the scene
+                (data.events || []).forEach(ev => {
+                    (ev.participants || []).forEach(p => { if (p && p.length > 1) allParticipants.add(String(p).trim()); });
+                });
+                // From facts (subjects/objects that look like character names)
+                (data.facts || []).forEach(f => {
+                    const JUNK = new Set(['NO','YES','OK','OH','AH','WHY','WHAT','WELL','VO','OS','BEAT','NONE','CONTINUED']);
+                    if (f.source && !JUNK.has(f.source.toUpperCase()) && !f.source.includes('_')) allParticipants.add(f.source);
+                    if (f.target && !JUNK.has(f.target.toUpperCase()) && f.target.length < 25 && !f.target.includes('_')) allParticipants.add(f.target);
+                });
+                const participantsList = Array.from(allParticipants).slice(0, 12);
+                if (participantsList.length > 0) {
+                    participantsContainer.innerHTML = participantsList.map(p => `
+                        <span class="scene-char-pill">${p}</span>
+                    `).join('');
+                } else {
+                    participantsContainer.innerHTML = '<span style="font-size: 11px; color: #999;">No specific characters listed</span>';
+                }
+
+                // Render Events in Scene
+                const eventsContainer = document.getElementById('scene-events-list');
+                if (data.events && data.events.length > 0) {
+                    eventsContainer.innerHTML = data.events.map(ev => `
+                        <div class="scene-event-item">
+                            <div class="scene-event-title">⚡ ${ev.name}</div>
+                            ${ev.description ? `<div class="scene-event-desc">${ev.description}</div>` : ''}
+                        </div>
+                    `).join('');
+                } else {
+                    eventsContainer.innerHTML = '<span style="font-size: 11px; color: #999;">No formal events linked to this scene</span>';
+                }
+
+                // Render Supporting Facts & Evidence with Fact IDs
+                const factsTbody = document.getElementById('scene-facts-tbody');
+                const factCountBadge = document.getElementById('scene-fact-count');
+                
+                if (data.facts && data.facts.length > 0) {
+                    factCountBadge.textContent = `${data.facts.length} facts`;
+                    factsTbody.innerHTML = (data.facts || []).filter(f => { const JUNK = new Set(['NO','YES','OK','OH','AH']); return f.source && !JUNK.has((f.source||'').toUpperCase()); }).map(f => `
+                        <tr>
+                            <td>
+                                <span class="fact-id-code" onclick="copyFactId('${f.fact_id}', this)" title="Click to copy Fact ID for Ground Truth evaluation">
+                                    📋 ${f.fact_id}
+                                </span>
+                            </td>
+                            <td><strong>${f.source}</strong></td>
+                            <td><span style="color: var(--primary-purple); font-weight:600;">${f.relation}</span></td>
+                            <td><strong>${f.target}</strong></td>
+                        </tr>
+                    `).join('');
+                } else {
+                    factCountBadge.textContent = '0 facts';
+                    factsTbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 12px; color: #999;">No direct graph facts for this scene chunk</td></tr>';
+                }
+
+            } catch (err) {
+                console.error('Error fetching scene detail:', err);
+                document.getElementById('scene-script-text').textContent = 'Error loading scene details: ' + err.message;
+            }
+        }
+
+        // Close Scene Inspector Panel
+        function closeSceneInspector() {
+            const panel = document.getElementById('scene-inspector-panel');
+            if (panel) panel.style.display = 'none';
+            selectedSceneNumber = null;
+        }
+
+        // Collapse Selected Scene Node from graph
+        function collapseSelectedScene() {
+            if (selectedSceneNumber && allNodes) {
+                const scId = `scene_${selectedSceneNumber}`;
+                if (allNodes.get(scId)) {
+                    allNodes.remove(scId);
+                }
+            }
+            closeSceneInspector();
+        }
+
+        // Focus on an Act's major events
+        function focusOnAct(actLabel) {
+            const actNode = Array.from(allNodes.get()).find(n => n.label === actLabel);
+            if (actNode && network) {
+                network.focus(actNode.id, {
+                    scale: 1.3,
+                    animation: { duration: 600, easingFunction: 'easeInOutQuad' }
+                });
+            }
+        }
+
+        // Format raw node object into Vis.js node
+        function formatVisNode(node) {
+            const nodeType = node.type || 'Entity';
+            const rawId = String(node.id);
+
+            // 1. Act Milestone Nodes
+            if (nodeType === 'Act' || node.is_act) {
+                let actBg = '#1e40af';
+                let actBorder = '#60a5fa';
+                if (node.label.includes('II') || node.label.includes('Confrontation')) {
+                    actBg = '#581c87';
+                    actBorder = '#c084fc';
+                } else if (node.label.includes('III') || node.label.includes('Resolution')) {
+                    actBg = '#881337';
+                    actBorder = '#fb7185';
+                }
+                return {
+                    id: rawId,
+                    label: node.label,
+                    shape: 'box',
+                    margin: 10,
+                    size: 36,
+                    color: {
+                        background: actBg,
+                        border: actBorder,
+                        highlight: { background: '#f59e0b', border: '#d97706' }
+                    },
+                    font: { size: 14, color: '#ffffff', bold: true },
+                    nodeType: 'Act',
+                    borderWidth: 2
+                };
+            }
+
+            // 2. Character Nodes
+            if (nodeType === 'Character') {
+                if (node.is_principal || node.level === 1) {
+                    // Principal Character (Level 1)
+                    const hiddenCount = node.hidden_connections || 0;
+                    return {
+                        id: rawId,
+                        label: node.label,
+                        shape: 'dot',
+                        size: 46,
+                        color: {
+                            background: '#0e7490',
+                            border: '#22d3ee',
+                            highlight: { background: '#fd9d31', border: '#f57c00' }
+                        },
+                        borderWidth: 4,
+                        font: { size: 15, color: '#ffffff', strokeWidth: 4, strokeColor: '#000000', bold: true },
+                        title: `⭐ Principal Character: ${node.label}\nDegree: ${node.degree || 0} connections\n${hiddenCount > 0 ? '+' + hiddenCount + ' more connections\n' : ''}Click to expand/collapse connections`,
+                        nodeType: 'Character'
+                    };
+                } else if (node.level === 2) {
+                    // Secondary Character (Level 2)
+                    return {
+                        id: rawId,
+                        label: node.label,
+                        shape: 'dot',
+                        size: 34,
+                        color: {
+                            background: '#0369a1',
+                            border: '#38bdf8',
+                            highlight: { background: '#fd9d31', border: '#f57c00' }
+                        },
+                        borderWidth: 2,
+                        font: { size: 13, color: '#ffffff', strokeWidth: 3, strokeColor: '#000000' },
+                        title: `Character: ${node.label}\nClick to expand connections`,
+                        nodeType: 'Character'
+                    };
+                } else {
+                    // Minor Character (Level 3)
+                    return {
+                        id: rawId,
+                        label: node.label,
+                        shape: 'dot',
+                        size: 24,
+                        color: {
+                            background: '#075985',
+                            border: '#7dd3fc',
+                            highlight: { background: '#fd9d31', border: '#f57c00' }
+                        },
+                        borderWidth: 1.5,
+                        font: { size: 11, color: '#ffffff', strokeWidth: 2, strokeColor: '#000000' },
+                        title: `Minor Character: ${node.label}`,
+                        nodeType: 'Character'
+                    };
+                }
+            }
+
+            // 3. Event Nodes
+            if (nodeType === 'Event') {
+                if (node.is_major || node.level === 1) {
+                    // Major Plot Event (Level 1)
+                    return {
+                        id: rawId,
+                        label: node.label,
+                        shape: 'diamond',
+                        size: 36,
+                        color: {
+                            background: '#e11d48',
+                            border: '#ffe4e6',
+                            highlight: { background: '#f59e0b', border: '#d97706' }
+                        },
+                        borderWidth: 3,
+                        font: { size: 12, color: '#ffffff', strokeWidth: 3, strokeColor: '#000000' },
+                        title: `Major Event: ${node.label}\n${node.act || ''}\nClick to inspect Scene Detail`,
+                        nodeType: 'Event',
+                        chunkId: node.chunk_id
+                    };
+                } else {
+                    // Regular / Minor Event (Level 2 or 3)
+                    return {
+                        id: rawId,
+                        label: node.label,
+                        shape: 'diamond',
+                        size: node.level === 2 ? 22 : 16,
+                        color: {
+                            background: node.level === 2 ? '#b45309' : '#d97706',
+                            border: '#fbbf24',
+                            highlight: { background: '#f59e0b', border: '#d97706' }
+                        },
+                        borderWidth: 2,
+                        font: { size: 11, color: '#ffffff', strokeWidth: 2, strokeColor: '#000000' },
+                        title: `Event: ${node.label}\nClick to inspect Scene Detail`,
+                        nodeType: 'Event',
+                        chunkId: node.chunk_id
+                    };
+                }
+            }
+
+            // 4. Scene Nodes (Level 3)
+            if (nodeType === 'Scene' || node.is_scene) {
+                return {
+                    id: rawId,
+                    label: node.label,
+                    shape: 'box',
+                    margin: 8,
+                    size: 36,
+                    color: {
+                        background: '#059669',
+                        border: '#34d399',
+                        highlight: { background: '#10b981', border: '#059669' }
+                    },
+                    borderWidth: 2,
+                    font: { size: 12, color: '#ffffff', bold: true },
+                    title: `${node.label}\nClick to open Scene Excerpt & Dialogue`,
+                    nodeType: 'Scene',
+                    sceneNumber: node.scene_number
+                };
+            }
+
+            // 5. Locations & Objects
+            if (nodeType === 'Location') {
+                return {
+                    id: rawId,
+                    label: node.label,
+                    shape: 'dot',
+                    size: 30,
+                    color: { background: '#10b981', border: '#059669', highlight: { background: '#34d399', border: '#059669' } },
+                    borderWidth: 2,
+                    font: { size: 12, color: '#ffffff', strokeWidth: 3, strokeColor: '#000000' },
+                    title: `Location: ${node.label}`,
+                    nodeType: 'Location'
+                };
+            }
+
+            if (nodeType === 'Object') {
+                return {
+                    id: rawId,
+                    label: node.label,
+                    shape: 'dot',
+                    size: 26,
+                    color: { background: '#f59e0b', border: '#d97706', highlight: { background: '#fbbf24', border: '#d97706' } },
+                    borderWidth: 2,
+                    font: { size: 11, color: '#ffffff', strokeWidth: 2, strokeColor: '#000000' },
+                    title: `Object: ${node.label}`,
+                    nodeType: 'Object'
+                };
+            }
+
+            // Default fallback
+            return {
+                id: rawId,
+                label: node.label,
+                shape: 'dot',
+                size: 28,
+                color: { background: '#6c97d1', border: '#254189' },
+                font: { size: 12, color: '#ffffff', strokeWidth: 2, strokeColor: '#000000' },
+                title: `${nodeType}: ${node.label}`,
+                nodeType: nodeType
+            };
+        }
+
+        // Format raw edge object into Vis.js edge
+        function formatVisEdge(edge, edgeId) {
+            let edgeColor = '#9ca3af';
+            let width = 2;
+            let dashes = false;
+
+            if (edge.type === 'PROGRESSES_TO') {
+                edgeColor = '#38bdf8';
+                width = 3;
+            } else if (edge.type === 'PART_OF_ACT') {
+                edgeColor = '#6366f1';
+                width = 1.5;
+                dashes = true;
+            } else if (edge.type === 'OCCURS_IN') {
+                edgeColor = '#10b981';
+                width = 2;
+                dashes = true;
+            } else if (edge.level === 1) {
+                edgeColor = '#818cf8';
+                width = 2.5;
+            }
+
+            return {
+                id: edge.id || edgeId,
+                from: String(edge.from),
+                to: String(edge.to),
+                label: edge.label,
+                title: edge.fact_id ? `${edge.type}\nFact ID: ${edge.fact_id}` : edge.type,
+                factId: edge.fact_id || '',
+                color: {
+                    color: edgeColor,
+                    highlight: '#ff9800',
+                    hover: '#ff9800'
+                },
+                width: width,
+                dashes: dashes,
+                smooth: {
+                    type: 'continuous',
+                    roundness: 0.4
+                }
+            };
+        }
+
+        // Filter graph to show only connections for a specific node
+        function filterByNode(nodeId) {
+            if (!network || !allNodes || !allEdges) return;
+            
+            if (filteredNodeId === nodeId) {
+                resetFilter();
+                return;
+            }
+            
+            filteredNodeId = nodeId;
+            
+            const connectedNodeIds = new Set([nodeId]);
+            const visibleEdges = [];
+            
+            allEdges.forEach(edge => {
+                if (edge.from === nodeId || edge.to === nodeId) {
+                    connectedNodeIds.add(edge.from);
+                    connectedNodeIds.add(edge.to);
+                    visibleEdges.push(edge);
+                }
+            });
+            
+            allNodes.forEach(node => {
+                if (connectedNodeIds.has(node.id)) {
+                    allNodes.update({ id: node.id, hidden: false, opacity: 1 });
+                } else {
+                    allNodes.update({ id: node.id, hidden: true, opacity: 0.1 });
+                }
+            });
+            
+            allEdges.forEach(edge => {
+                const isVisible = visibleEdges.some(e => e.from === edge.from && e.to === edge.to);
+                allEdges.update({ id: edge.id, hidden: !isVisible });
+            });
+            
+            network.focus(nodeId, {
+                scale: 1.4,
+                animation: { duration: 500, easingFunction: 'easeInOutQuad' }
+            });
+            
+            document.getElementById('reset-filter-btn').style.display = 'inline-flex';
+            updateGraphStats(connectedNodeIds.size, visibleEdges.length);
+        }
+
+        // Reset filter to show all nodes
+        function resetFilter() {
+            if (!network || !allNodes || !allEdges) return;
+            
+            filteredNodeId = null;
+            
+            allNodes.forEach(node => {
+                allNodes.update({ id: node.id, hidden: false, opacity: 1 });
+            });
+            
+            allEdges.forEach(edge => {
+                allEdges.update({ id: edge.id, hidden: false });
+            });
+            
+            network.fit({
+                animation: { duration: 500, easingFunction: 'easeInOutQuad' }
+            });
+            
+            document.getElementById('reset-filter-btn').style.display = 'none';
+            updateGraphStats();
+        }
+
+        // Update graph statistics display
+        function updateGraphStats(nodeCount = null, edgeCount = null) {
+            const nodes = nodeCount !== null ? nodeCount : (allNodes ? allNodes.length : 0);
+            const edges = edgeCount !== null ? edgeCount : (allEdges ? allEdges.length : 0);
+            
+            let statsText = `L${currentGraphLevel}: ${nodes} nodes, ${edges} edges`;
+            if (filteredNodeId !== null) {
+                statsText += ' (filtered)';
+            }
+            
+            document.getElementById('graph-stats').textContent = statsText;
+        }
+
+        // Multi-level graph filtering engine
+        function filterGraphDataForLevel(nodes, edges, level) {
+            const targetLevel = String(level || '1');
+            
+            // Collect degree of all nodes
+            const degMap = new Map();
+            edges.forEach(e => {
+                const f = String(e.from);
+                const t = String(e.to);
+                degMap.set(f, (degMap.get(f) || 0) + 1);
+                degMap.set(t, (degMap.get(t) || 0) + 1);
+            });
+
+            const charNodes = [];
+            const eventNodes = [];
+            const actNodes = [];
+            const otherNodes = [];
+
+            const JUNK_NODES = new Set(["NO", "YES", "OK", "OH", "AH", "WHY", "WHAT", "WELL", "PLEASE", "VO", "OS", "BEAT", "NONE", "CONTINUED"]);
+            nodes.forEach(n => {
+                const nid = String(n.id);
+                const nType = (n.type || n.entity_type || n.node_label || '').toLowerCase();
+                const nLabel = (n.label || '').trim();
+                // Skip junk/stopword nodes
+                if (JUNK_NODES.has(nLabel.toUpperCase()) || nLabel.length <= 1) return;
+                const deg = n.degree || n.deg || degMap.get(nid) || 0;
+                n.deg = deg;
+
+                if (nType === 'act' || n.is_act || nid.startsWith('act_')) {
+                    actNodes.push(n);
+                } else if (nType === 'character' || (nLabel.length <= 25 && !nLabel.includes('_') && nType !== 'event')) {
+                    charNodes.push(n);
+                } else if (nType === 'event' || nLabel.includes('_')) {
+                    eventNodes.push(n);
+                } else {
+                    otherNodes.push(n);
+                }
+            });
+
+            // Ensure 3 Act nodes for story spine
+            if (actNodes.length === 0) {
+                actNodes.push(
+                    { id: 'act_1', label: 'Act I: Setup', type: 'Act', level: 1, is_act: true },
+                    { id: 'act_2', label: 'Act II: Confrontation', type: 'Act', level: 1, is_act: true },
+                    { id: 'act_3', label: 'Act III: Resolution', type: 'Act', level: 1, is_act: true }
+                );
+            }
+
+            // Sort characters by connectivity (highest degree first)
+            charNodes.sort((a, b) => (b.deg || 0) - (a.deg || 0));
+            // Principal characters: top 4 to 5 central characters (e.g. BEAR, NICKY, IAN)
+            const principalChars = charNodes.slice(0, 5);
+            const principalIds = new Set(principalChars.map(c => String(c.id)));
+
+            // Score and rank events by principal character involvement + connectivity
+            eventNodes.forEach(ev => {
+                const eid = String(ev.id);
+                let pScore = 0;
+                edges.forEach(e => {
+                    const f = String(e.from);
+                    const t = String(e.to);
+                    if (f === eid && principalIds.has(t)) pScore += 10;
+                    if (t === eid && principalIds.has(f)) pScore += 10;
+                });
+                ev.pScore = pScore + (ev.deg || 0);
+            });
+            eventNodes.sort((a, b) => (b.pScore || 0) - (a.pScore || 0));
+
+            // DEBUG: log ALL events with scores, then mark selected top N
+            if (targetLevel === '1') {
+                console.group('%c🎬 L1 Event Scoring — ALL events', 'color:#fd9d31;font-weight:bold;font-size:13px');
+                console.log('%cSCORE = (principal_connections × 10) + degree', 'color:#aaa;font-size:11px');
+                eventNodes.forEach((ev, i) => {
+                    const selected = i < 8;
+                    const mark = selected ? '✅ SELECTED' : '   ';
+                    const style = selected ? 'color:#4caf50;font-weight:bold' : 'color:#999';
+                    console.log(`%c${mark} #${String(i+1).padStart(2)} [score=${ev.pScore}] ${ev.label || ev.id}`, style);
+                });
+                console.groupEnd();
+            }
+
+            let visibleNodeIds = new Set();
+            let finalNodes = [];
+            let finalEdges = [];
+
+            if (targetLevel === '1') {
+                // LEVEL 1: Story Overview (Major Characters, Major Events, and 3 Acts ONLY, ~15-18 nodes total)
+                principalChars.forEach(c => {
+                    c.level = 1;
+                    c.is_principal = true;
+                    visibleNodeIds.add(String(c.id));
+                    finalNodes.push(c);
+                });
+
+                // Top 8-10 major events across screenplay
+                const majorEvents = eventNodes.slice(0, 8);
+                majorEvents.forEach(ev => {
+                    ev.level = 1;
+                    ev.is_major = true;
+                    visibleNodeIds.add(String(ev.id));
+                    finalNodes.push(ev);
+                });
+
+                // Add 3 Acts
+                actNodes.forEach(a => {
+                    visibleNodeIds.add(String(a.id));
+                    finalNodes.push(a);
+                });
+
+                // Act progression spine: Act I -> Act II -> Act III
+                finalEdges.push(
+                    { id: 'act_1_2', from: 'act_1', to: 'act_2', label: 'PROGRESSES_TO', type: 'PROGRESSES_TO', level: 1 },
+                    { id: 'act_2_3', from: 'act_2', to: 'act_3', label: 'PROGRESSES_TO', type: 'PROGRESSES_TO', level: 1 }
+                );
+
+                // Link major events to Acts based on position or chunk_id
+                majorEvents.forEach((ev, idx) => {
+                    let targetAct = 'act_1';
+                    if (idx >= Math.floor(majorEvents.length * 0.65)) targetAct = 'act_3';
+                    else if (idx >= Math.floor(majorEvents.length * 0.25)) targetAct = 'act_2';
+                    
+                    finalEdges.push({
+                        id: `act_link_${idx}_${ev.id}`,
+                        from: String(ev.id),
+                        to: targetAct,
+                        label: 'PART_OF_ACT',
+                        type: 'PART_OF_ACT',
+                        fact_id: `fact_act_${ev.id}`,
+                        level: 1
+                    });
+                });
+
+                // Add direct edges between visible Level 1 nodes
+                edges.forEach((e, idx) => {
+                    const f = String(e.from);
+                    const t = String(e.to);
+                    if (visibleNodeIds.has(f) && visibleNodeIds.has(t)) {
+                        finalEdges.push({ ...e, id: e.id || `l1_edge_${idx}`, level: 1 });
+                    }
+                });
+
+            } else if (targetLevel === '2') {
+                // LEVEL 2: Characters & Event Subgraphs (~28-32 nodes total)
+                const secChars = charNodes.slice(5, 10);
+                [...principalChars, ...secChars].forEach(c => {
+                    c.level = 2;
+                    visibleNodeIds.add(String(c.id));
+                    finalNodes.push(c);
+                });
+
+                // Top 15 Connected Events
+                const topEvents = eventNodes.slice(0, 15);
+                topEvents.forEach(ev => {
+                    ev.level = 2;
+                    visibleNodeIds.add(String(ev.id));
+                    finalNodes.push(ev);
+                });
+
+                actNodes.forEach(a => {
+                    visibleNodeIds.add(String(a.id));
+                    finalNodes.push(a);
+                });
+
+                finalEdges.push(
+                    { id: 'act_1_2', from: 'act_1', to: 'act_2', label: 'PROGRESSES_TO', type: 'PROGRESSES_TO', level: 1 },
+                    { id: 'act_2_3', from: 'act_2', to: 'act_3', label: 'PROGRESSES_TO', type: 'PROGRESSES_TO', level: 1 }
+                );
+
+                edges.forEach((e, idx) => {
+                    const f = String(e.from);
+                    const t = String(e.to);
+                    if (visibleNodeIds.has(f) && visibleNodeIds.has(t)) {
+                        finalEdges.push({ ...e, id: e.id || `l2_edge_${idx}`, level: 2 });
+                    }
+                });
+
+            } else {
+                // LEVEL 3: Scene detail view
+                return filterGraphDataForLevel(nodes, edges, '2');
+            }
+
+            return { nodes: finalNodes, edges: finalEdges };
+        }
+
+        // Main Load Graph Data function
+        async function loadGraphData(level = currentGraphLevel) {
+            const container = document.getElementById('graph-container');
+            
+            if (network) {
+                network.destroy();
+                network = null;
+            }
+            
+            filteredNodeId = null;
+            allNodes = null;
+            allEdges = null;
+            nodeDataMap.clear();
+            expandedSubgraphs.clear();
+            expandedNodeIds.clear();
+            
+            container.innerHTML = '<div class="graph-empty"><div style="font-size: 48px;">⏳</div><div>Loading Multi-Level Graph...</div></div>';
+            document.getElementById('download-graph-btn').disabled = true;
+            document.getElementById('graph-stats').textContent = 'Loading...';
+            
+            try {
+                // If full document data is not yet loaded or on first call, fetch from backend
+                if (!fullDocumentNodes.length || !fullDocumentEdges.length) {
+                    const response = await fetch(`/api/graph-data?level=${encodeURIComponent(level)}`);
+                    
+                    if (!response.ok) {
+                        container.innerHTML = '<div class="graph-empty"><div style="font-size: 48px;">❌</div><div>Failed to load graph</div></div>';
+                        return;
+                    }
+                    
+                    const data = await response.json();
+                    graphMetadata = data.metadata || null;
+                    fullDocumentNodes = data.nodes || [];
+                    fullDocumentEdges = data.edges || [];
+                }
+                
+                if (!fullDocumentNodes || fullDocumentNodes.length === 0) {
+                    container.innerHTML = `
+                        <div class="graph-empty">
+                            <div style="font-size: 48px;">📊</div>
+                            <div>No graph data found for this document</div>
+                            <div style="font-size: 12px; color: #999; margin-top: 8px;">
+                                Load a screenplay from the library or upload a PDF
+                            </div>
+                        </div>
+                    `;
+                    return;
+                }
+
+                // Cache metadata for ALL nodes in the document
+                fullDocumentNodes.forEach(n => {
+                    nodeDataMap.set(String(n.id), n);
+                });
+
+                // Apply Multi-Level filtering: Level 1 is strictly ~15-18 nodes
+                const filtered = filterGraphDataForLevel(fullDocumentNodes, fullDocumentEdges, level);
+
+                // Store metadata for visible nodes
+                filtered.nodes.forEach(n => {
+                    nodeDataMap.set(String(n.id), n);
+                });
+
+                // Deduplicate nodes and edges by ID to prevent Vis.js "already exists" errors
+                const seenNodeIds = new Set();
+                const uniqueNodes = filtered.nodes.filter(n => {
+                    const k = String(n.id);
+                    if (seenNodeIds.has(k)) return false;
+                    seenNodeIds.add(k);
+                    return true;
+                });
+
+                const seenEdgeIds = new Set();
+                const uniqueEdges = filtered.edges.filter((e, idx) => {
+                    const k = String(e.id || `edge_${idx}`);
+                    if (seenEdgeIds.has(k)) return false;
+                    seenEdgeIds.add(k);
+                    return true;
+                });
+
+                // Format Vis.js nodes and edges
+                allNodes = new vis.DataSet(uniqueNodes.map(n => formatVisNode(n)));
+                allEdges = new vis.DataSet(uniqueEdges.map((e, idx) => formatVisEdge(e, e.id || `edge_${idx}`)));
+
+                initGraph();
+
+            } catch (error) {
+                console.error('Error loading graph:', error);
+                container.innerHTML = `<div class="graph-empty"><div style="font-size: 48px;">❌</div><div>Error: ${error.message}</div></div>`;
+            }
+        }
+
+        // Highlight nodes in graph
+        function highlightGraphNodes(graphData) {
+            if (!network || !graphData || graphData.length === 0) {
+                console.log('No graph data to highlight');
+                return;
+            }
+            
+            console.log(`Highlighting ${graphData.length} relevant paths`);
+            
+            // Collect specific node labels and edges from the used paths
+            const highlightNodeLabels = new Set();
+            const highlightEdgeKeys = new Set();
+            
+            graphData.forEach(path => {
+                // Add all nodes in this path
+                path.nodes.forEach(node => highlightNodeLabels.add(node));
+                
+                // Create edge keys for this specific path
+                for (let i = 0; i < path.nodes.length - 1; i++) {
+                    const edgeKey = `${path.nodes[i]}|||${path.relationships[i]}|||${path.nodes[i+1]}`;
+                    highlightEdgeKeys.add(edgeKey);
+                }
+            });
+            
+            console.log('Nodes to highlight:', Array.from(highlightNodeLabels));
+            console.log('Edges to highlight:', highlightEdgeKeys.size);
+            
+            // Find node IDs from labels
+            const highlightNodeIds = new Set();
+            allNodes.forEach(node => {
+                if (highlightNodeLabels.has(node.label)) {
+                    highlightNodeIds.add(node.id);
+                }
+            });
+            
+            // HIDE non-relevant nodes (like the filter does)
+            allNodes.forEach(node => {
+                if (highlightNodeIds.has(node.id)) {
+                    // Show and keep highlighted nodes visible
+                    allNodes.update({ id: node.id, hidden: false, opacity: 1 });
+                } else {
+                    // HIDE non-relevant nodes
+                    allNodes.update({ id: node.id, hidden: true });
+                }
+            });
+            
+            // HIDE non-relevant edges, show only the specific ones
+            allEdges.forEach(edge => {
+                // Get node labels for this edge
+                const fromNode = allNodes.get(edge.from);
+                const toNode = allNodes.get(edge.to);
+                
+                if (!fromNode || !toNode) return;
+                
+                // Create edge key
+                const edgeKey = `${fromNode.label}|||${edge.label}|||${toNode.label}`;
+                
+                if (highlightEdgeKeys.has(edgeKey)) {
+                    // Show and highlight this edge with increased visibility
+                    allEdges.update({
+                        id: edge.id,
+                        hidden: false,
+                        color: {
+                            color: '#fd9d31',
+                            highlight: '#5b3cfa'
+                        },
+                        width: 6,
+                        opacity: 1
+                    });
+                } else {
+                    // HIDE this edge
+                    allEdges.update({
+                        id: edge.id,
+                        hidden: true
+                    });
+                }
+            });
+            
+            // Select the highlighted nodes
+            network.selectNodes(Array.from(highlightNodeIds));
+            
+            // Zoom to fit only the visible (relevant) nodes
+            if (highlightNodeIds.size > 0) {
+                network.fit({
+                    nodes: Array.from(highlightNodeIds),
+                    animation: {
+                        duration: 1000,
+                        easingFunction: 'easeInOutQuad'
+                    }
+                });
+            }
+            
+            console.log(`✓ Showing ONLY ${highlightNodeIds.size} nodes and ${highlightEdgeKeys.size} edges`);
+        }
+        
+        // Reset graph highlighting
+        function resetGraphHighlighting() {
+            if (!network || !allNodes || !allEdges) return;
+            
+            // Show all nodes again
+            allNodes.forEach(node => {
+                allNodes.update({ id: node.id, hidden: false, opacity: 1 });
+            });
+            
+            // Show all edges again
+            allEdges.forEach(edge => {
+                allEdges.update({
+                    id: edge.id,
+                    hidden: false,
+                    color: {
+                        color: '#999999',
+                        highlight: '#ff9800'
+                    },
+                    width: 2,
+                    opacity: 1
+                });
+            });
+            
+            // Deselect all nodes
+            network.unselectAll();
+            
+            // Fit to show all nodes
+            network.fit({
+                animation: {
+                    duration: 500,
+                    easingFunction: 'easeInOutQuad'
+                }
+            });
+            
+            console.log('Graph highlighting reset - showing all nodes');
+        }
+
+        // Load library
+        async function loadLibrary() {
+            try {
+                const response = await fetch('/api/library');
+                const data = await response.json();
+                
+                const list = document.getElementById('library-list');
+                
+                if (data.documents.length === 0) {
+                    list.innerHTML = `
+                        <div class="empty-library">
+                            <div>📚</div>
+                            <div>No screenplays yet</div>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                list.innerHTML = data.documents.map(doc => `
+                    <div class="screenplay-item ${currentDocument && currentDocument.id === doc.id ? 'active' : ''}" 
+                         onclick="loadDocument('${doc.id}')">
+                        <div class="screenplay-thumb">
+                            <img src="/api/pdf-thumbnail/${doc.filename}" 
+                                 onerror="this.parentElement.innerHTML='📄'">
+                        </div>
+                        <div class="screenplay-details">
+                            <div class="screenplay-name">${doc.title}</div>
+                            <div class="screenplay-meta">${doc.chunks} Scenes</div>
+                        </div>
+                    </div>
+                `).join('');
+                
+            } catch (error) {
+                console.error('Error loading library:', error);
+            }
+        }
+
+        // Load document
+        async function loadDocument(docId) {
+            try {
+                addMessage('user', 'Loading screenplay...');
+                
+                const response = await fetch('/api/library/load', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ document_id: docId })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    currentDocument = data.document;
+                    
+                    document.getElementById('current-doc').textContent = data.document.title;
+                    document.getElementById('current-doc').classList.remove('empty');
+                    
+                    document.getElementById('question-input').disabled = false;
+                    document.getElementById('send-btn').disabled = false;
+                    
+                    // Clear current messages
+                    messages = [];
+                    
+                    // Load chat history for this document
+                    const historyResponse = await fetch(`/api/chat-history/${docId}`);
+                    if (historyResponse.ok) {
+                        const historyData = await historyResponse.json();
+                        messages = historyData.history.map(h => ({
+                            role: h.role,
+                            text: h.message,
+                            graphData: h.graph_data
+                        }));
+                    }
+                    
+                    // If no history, add welcome message
+                    if (messages.length === 0) {
+                        addMessage('assistant', `✓ Loaded "${data.document.title}". The knowledge graph is now displayed!`);
+                    } else {
+                        // Render existing history
+                        renderChat();
+                    }
+                    
+                    loadLibrary();
+                    
+                    // Reset to Level 1 Story Overview on document load
+                    currentGraphLevel = "1";
+                    fullDocumentNodes = [];
+                    fullDocumentEdges = [];
+                    expandedNodeIds.clear();
+                    expandedSubgraphs.clear();
+                    closeSceneInspector();
+                    const subtitle = document.getElementById('graph-subtitle');
+                    if (subtitle) subtitle.textContent = 'Level 1: Story Overview — Major Characters & Plot Events';
+                    const indLabel = document.getElementById('level-indicator-label');
+                    if (indLabel) indLabel.textContent = 'Story Overview';
+
+                    // Load and display graph
+                    await loadGraphData("1");
+                } else {
+                    const error = await response.json();
+                    messages.pop();
+                    addMessage('assistant', `Error: ${error.detail}`);
+                }
+            } catch (error) {
+                messages.pop();
+                addMessage('assistant', `Error: ${error.message}`);
+            }
+        }
+
+        // Ask question
+        async function askQuestion() {
+            const input = document.getElementById('question-input');
+            const question = input.value.trim();
+            
+            if (!question || !currentDocument) return;
+            
+            // Reset any previous highlighting
+            resetGraphHighlighting();
+            
+            addMessage('user', question);
+            input.value = '';
+            
+            const sendBtn = document.getElementById('send-btn');
+            sendBtn.disabled = true;
+            sendBtn.innerHTML = '<div class="spinner"></div>';
+            
+            try {
+                const response = await fetch('/api/query', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ question })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    addMessage('assistant', data.answer);
+                    
+                    // Save BOTH user question and assistant answer to chat history
+                    // Save user question
+                    await fetch(`/api/chat-history/${currentDocument.id}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            role: 'user',
+                            message: question,
+                            graph_data: null
+                        })
+                    });
+                    
+                    // Save assistant answer
+                    await fetch(`/api/chat-history/${currentDocument.id}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            role: 'assistant',
+                            message: data.answer,
+                            graph_data: data.graph_data
+                        })
+                    });
+                    
+                    // Highlight relevant nodes in graph
+                    if (data.graph_data && data.graph_data.length > 0) {
+                        highlightGraphNodes(data.graph_data);
+                    }
+                } else {
+                    const error = await response.json();
+                    addMessage('assistant', `Error: ${error.detail}`);
+                }
+            } catch (error) {
+                addMessage('assistant', `Error: ${error.message}`);
+            } finally {
+                sendBtn.disabled = false;
+                sendBtn.textContent = '➤';
+            }
+        }
+
+        // Add message to chat
+        function addMessage(role, text) {
+            messages.push({ role, text });
+            renderChat();
+        }
+
+        // Render chat
+        function renderChat() {
+            const chatArea = document.getElementById('chat-area');
+            
+            if (messages.length === 0) {
+                chatArea.innerHTML = `
+                    <div class="empty-chat">
+                        <div class="empty-chat-icon">💬</div>
+                        <div>Ask questions about the screenplay</div>
+                    </div>
+                `;
+                return;
+            }
+            
+            chatArea.innerHTML = messages.map(msg => `
+                <div class="message ${msg.role}">
+                    <div class="message-avatar">${msg.role === 'user' ? 'U' : 'AI'}</div>
+                    <div class="message-content">
+                        <div class="message-text">${msg.text}</div>
+                    </div>
+                </div>
+            `).join('');
+            
+            chatArea.scrollTop = chatArea.scrollHeight;
+        }
+
+        // Upload modal
+        function openUploadModal() {
+            document.getElementById('upload-modal').classList.add('active');
+        }
+
+        function closeUploadModal() {
+            document.getElementById('upload-modal').classList.remove('active');
+            document.getElementById('progress-info').classList.remove('active');
+            document.getElementById('file-input').value = '';
+        }
+
+        // Upload file
+        async function uploadFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            document.getElementById('progress-info').classList.add('active');
+            updateProgress(10, 'Uploading...');
+
+            try {
+                const progressInterval = setInterval(async () => {
+                    const status = await fetch('/api/status').then(r => r.json());
+                    if (status.indexing) {
+                        updateProgress(status.progress, status.message);
+                    }
+                }, 1000);
+
+                const response = await fetch('/api/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                clearInterval(progressInterval);
+
+                if (response.ok) {
+                    const data = await response.json();
+                    updateProgress(100, 'Complete!');
+                    
+                    setTimeout(() => {
+                        closeUploadModal();
+                        loadLibrary();
+                        addMessage('assistant', `✓ Successfully uploaded "${data.title}"! Building graph...`);
+                    }, 1000);
+                } else {
+                    const error = await response.json();
+                    alert('Error: ' + error.detail);
+                    closeUploadModal();
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+                closeUploadModal();
+            }
+        }
+
+        function updateProgress(percent, message) {
+            document.getElementById('progress-fill').style.width = percent + '%';
+            document.getElementById('progress-message').textContent = message;
+        }
+
+        // Initialize
+        window.onload = function() {
+            loadLibrary();
+            initResize();
+        };
+
+        // Initialize resizable panels
+        function initResize() {
+            let isResizingSidebar = false;
+            let isResizingGraph = false;
+            
+            const sidebar = document.querySelector('.sidebar');
+            const graphPanel = document.querySelector('.graph-panel');
+            const chatPanel = document.querySelector('.chat-panel');
+            const sidebarHandle = document.getElementById('sidebar-resize-handle');
+            const graphHandle = document.getElementById('graph-resize-handle');
+            
+            // Sidebar resize
+            sidebarHandle.addEventListener('mousedown', function(e) {
+                isResizingSidebar = true;
+                document.body.style.cursor = 'ew-resize';
+                document.body.style.userSelect = 'none';
+                e.preventDefault();
+            });
+            
+            // Graph resize
+            graphHandle.addEventListener('mousedown', function(e) {
+                isResizingGraph = true;
+                document.body.style.cursor = 'ew-resize';
+                document.body.style.userSelect = 'none';
+                e.preventDefault();
+            });
+            
+            document.addEventListener('mousemove', function(e) {
+                if (isResizingSidebar) {
+                    const newWidth = e.clientX;
+                    if (newWidth >= 250 && newWidth <= 500) {
+                        sidebar.style.width = newWidth + 'px';
+                    }
+                }
+                
+                if (isResizingGraph) {
+                    const sidebarWidth = sidebar.offsetWidth;
+                    const newGraphWidth = e.clientX - sidebarWidth;
+                    const minGraphWidth = 400;
+                    const minChatWidth = 350;
+                    const containerWidth = window.innerWidth;
+                    const maxGraphWidth = containerWidth - sidebarWidth - minChatWidth;
+                    
+                    if (newGraphWidth >= minGraphWidth && newGraphWidth <= maxGraphWidth) {
+                        graphPanel.style.flex = `0 0 ${newGraphWidth}px`;
+                        graphPanel.style.width = newGraphWidth + 'px';
+                    }
+                }
+            });
+            
+            document.addEventListener('mouseup', function() {
+                if (isResizingSidebar || isResizingGraph) {
+                    isResizingSidebar = false;
+                    isResizingGraph = false;
+                    document.body.style.cursor = '';
+                    document.body.style.userSelect = '';
+                    
+                    // Trigger graph redraw if network exists
+                    if (network) {
+                        network.redraw();
+                        network.fit();
+                    }
+                }
+            });
+        }
+
+        // Show character arc panel
+        async function showCharacterArc(characterName) {
+            // #region agent log
+            fetch('http://127.0.0.1:7473/ingest/bc3b8acf-c26b-4df7-a079-6e48ffafb41d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'14d924'},body:JSON.stringify({sessionId:'14d924',location:'index.html:showCharacterArc:entry',message:'showCharacterArc called',data:{characterName,hasCurrentDocument:!!currentDocument,docId:currentDocument&&currentDocument.id},timestamp:Date.now(),hypothesisId:'A,B'})}).catch(()=>{});
+            // #endregion
+            if (!currentDocument) return;
+            
+            const section = document.getElementById('character-arc-section');
+            
+            // Show section
+            section.style.display = 'block';
+            
+            // Update header
+            document.getElementById('arc-character-name-compact').textContent = characterName;
+            document.getElementById('arc-character-role-compact').textContent = 'Loading...';
+            
+            currentCharacterArc = characterName;
+            
+            // Load character arc data
+            try {
+                const response = await fetch(`/api/character-arc/${encodeURIComponent(characterName)}`);
+                // #region agent log
+                fetch('http://127.0.0.1:7473/ingest/bc3b8acf-c26b-4df7-a079-6e48ffafb41d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'14d924'},body:JSON.stringify({sessionId:'14d924',location:'index.html:showCharacterArc:api',message:'character-arc API response',data:{status:response.status,ok:response.ok,characterName},timestamp:Date.now(),hypothesisId:'C,E'})}).catch(()=>{});
+                // #endregion
+                if (response.ok) {
+                    const data = await response.json();
+                    // #region agent log
+                    fetch('http://127.0.0.1:7473/ingest/bc3b8acf-c26b-4df7-a079-6e48ffafb41d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'14d924'},body:JSON.stringify({sessionId:'14d924',location:'index.html:showCharacterArc:data',message:'character-arc payload summary',data:{totalScenes:data.total_scenes,totalEvents:data.total_events,journeyLen:(data.emotional_journey||[]).length,motivationCount:(data.motivations||[]).length,sampleMotivation:(data.motivations&&data.motivations[0]&&data.motivations[0].text)?String(data.motivations[0].text).slice(0,80):null},timestamp:Date.now(),hypothesisId:'C,D'})}).catch(()=>{});
+                    // #endregion
+                    
+                    // Update stats
+                    document.getElementById('arc-total-scenes-compact').textContent = data.total_scenes;
+                    document.getElementById('arc-total-events-compact').textContent = data.total_events;
+                    
+                    // Update role
+                    document.getElementById('arc-character-role-compact').textContent = 'Character';
+                    
+                    // Render motivations from API data
+                    renderMotivations(data.motivations || []);
+                } else {
+                    // #region agent log
+                    fetch('http://127.0.0.1:7473/ingest/bc3b8acf-c26b-4df7-a079-6e48ffafb41d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'14d924'},body:JSON.stringify({sessionId:'14d924',location:'index.html:showCharacterArc:notOk',message:'API not ok — static HTML placeholders may remain',data:{status:response.status},timestamp:Date.now(),hypothesisId:'C'})}).catch(()=>{});
+                    // #endregion
+                }
+            } catch (error) {
+                console.error('Error loading character arc:', error);
+                // #region agent log
+                fetch('http://127.0.0.1:7473/ingest/bc3b8acf-c26b-4df7-a079-6e48ffafb41d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'14d924'},body:JSON.stringify({sessionId:'14d924',location:'index.html:showCharacterArc:error',message:'fetch failed',data:{error:String(error&&error.message||error)},timestamp:Date.now(),hypothesisId:'A,E'})}).catch(()=>{});
+                // #endregion
+            }
+        }
+
+        // Close character arc panel
+        function closeCharacterArc() {
+            const section = document.getElementById('character-arc-section');
+            section.style.display = 'none';
+            currentCharacterArc = null;
+        }
+
+        function escapeHtml(text) {
+            return String(text)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        // Render motivations from API data
+        function renderMotivations(motivations) {
+            const container = document.getElementById('motivations-container-compact');
+            // #region agent log
+            const hasHtmlInText = (motivations||[]).some(m => m&&m.text && /<[a-z][\s\S]*>/i.test(String(m.text)));
+            fetch('http://127.0.0.1:7473/ingest/bc3b8acf-c26b-4df7-a079-6e48ffafb41d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'14d924'},body:JSON.stringify({sessionId:'14d924',location:'index.html:renderMotivations',message:'rendering motivations via innerHTML',data:{count:(motivations||[]).length,hasHtmlInText,usesInnerHTML:true},timestamp:Date.now(),hypothesisId:'D'})}).catch(()=>{});
+            // #endregion
+            
+            if (!motivations || motivations.length === 0) {
+                container.innerHTML = `
+                    <div class="motivation-item-compact">
+                        <div class="motivation-text-compact">No motivations identified</div>
+                        <span class="motivation-type-compact secondary">None</span>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = motivations.map(motivation => {
+                const type = motivation.type || 'primary';
+                const typeLabel = type.charAt(0).toUpperCase() + type.slice(1);
+                return `
+                <div class="motivation-item-compact">
+                    <div class="motivation-text-compact">${escapeHtml(motivation.text || '')}</div>
+                    <span class="motivation-type-compact ${type === 'primary' ? '' : 'secondary'}">${escapeHtml(typeLabel)}</span>
+                </div>
+            `;
+            }).join('');
+        }
+
+        // Toggle library list
+        function toggleLibraryList() {
+            libraryExpanded = !libraryExpanded;
+            const list = document.getElementById('library-list');
+            const arrow = document.getElementById('library-arrow');
+            
+            if (libraryExpanded) {
+                list.classList.add('expanded');
+                arrow.classList.add('open');
+            } else {
+                list.classList.remove('expanded');
+                arrow.classList.remove('open');
+            }
+        }
+
+        // Toggle Character Arc Studio
+        function toggleCharacterArc() {
+            arcExpanded = !arcExpanded;
+            const content = document.getElementById('character-arc-content');
+            const arrow = document.getElementById('arc-arrow');
+            
+            if (arcExpanded) {
+                content.classList.add('open');
+                arrow.classList.add('open');
+            } else {
+                content.classList.remove('open');
+                arrow.classList.remove('open');
+            }
+        }
+
+        // Load characters for character select
+        async function loadCharacters() {
+            if (!currentDocument) return;
+            
+            try {
+                const response = await fetch('/api/characters');
+                if (response.ok) {
+                    const data = await response.json();
+                    const select = document.getElementById('character-select');
+                    
+                    select.innerHTML = '<option value="">Select a character...</option>' +
+                        data.characters.map(char => 
+                            `<option value="${char}">${char}</option>`
+                        ).join('');
+                    
+                    select.disabled = false;
+                }
+            } catch (error) {
+                console.error('Error loading characters:', error);
+            }
+        }
+
+        // Load character arc data
+        async function loadCharacterArc() {
+            const select = document.getElementById('character-select');
+            const characterName = select.value;
+            
+            if (!characterName) {
+                document.getElementById('arc-data-container').style.display = 'none';
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/character-arc/${encodeURIComponent(characterName)}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    
+                    // Show container
+                    document.getElementById('arc-data-container').style.display = 'block';
+                    
+                    // Update stats
+                    document.getElementById('total-scenes').textContent = data.total_scenes;
+                    document.getElementById('total-events').textContent = data.total_events;
+                    
+                    // Render emotional journey chart
+                    renderEmotionalChart(data.emotional_journey);
+                }
+            } catch (error) {
+                console.error('Error loading character arc:', error);
+            }
+        }
+
+        // Render emotional journey chart
+        function renderEmotionalChart(journey) {
+            const canvas = document.getElementById('emotional-chart');
+            const ctx = canvas.getContext('2d');
+            
+            // Destroy existing chart if it exists
+            if (emotionalChart) {
+                emotionalChart.destroy();
+            }
+            
+            // Filter out scenes without emotion data
+            const validScenes = journey.filter(scene => 
+                scene.tension !== null || scene.confidence !== null || 
+                scene.hope !== null || scene.determination !== null
+            );
+            
+            if (validScenes.length === 0) {
+                ctx.font = '12px Arial';
+                ctx.fillStyle = '#999';
+                ctx.textAlign = 'center';
+                ctx.fillText('No emotional data available', canvas.width / 2, canvas.height / 2);
+                return;
+            }
+            
+            const labels = validScenes.map(scene => `Scene ${scene.scene_number}`);
+            
+            const datasets = [
+                {
+                    label: 'Tension',
+                    data: validScenes.map(s => s.tension),
+                    borderColor: '#ea4335',
+                    backgroundColor: 'rgba(234, 67, 53, 0.1)',
+                    borderWidth: 2,
+                    tension: 0.4,
+                    pointRadius: 4,
+                    pointHoverRadius: 6
+                },
+                {
+                    label: 'Confidence',
+                    data: validScenes.map(s => s.confidence),
+                    borderColor: '#4285f4',
+                    backgroundColor: 'rgba(66, 133, 244, 0.1)',
+                    borderWidth: 2,
+                    tension: 0.4,
+                    pointRadius: 4,
+                    pointHoverRadius: 6
+                },
+                {
+                    label: 'Hope',
+                    data: validScenes.map(s => s.hope),
+                    borderColor: '#34a853',
+                    backgroundColor: 'rgba(52, 168, 83, 0.1)',
+                    borderWidth: 2,
+                    tension: 0.4,
+                    pointRadius: 4,
+                    pointHoverRadius: 6
+                },
+                {
+                    label: 'Determination',
+                    data: validScenes.map(s => s.determination),
+                    borderColor: '#fbbc04',
+                    backgroundColor: 'rgba(251, 188, 4, 0.1)',
+                    borderWidth: 2,
+                    tension: 0.4,
+                    pointRadius: 4,
+                    pointHoverRadius: 6
+                }
+            ];
+            
+            emotionalChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'bottom',
+                            labels: {
+                                boxWidth: 12,
+                                font: {
+                                    size: 10
+                                },
+                                padding: 8
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                afterLabel: function(context) {
+                                    const scene = validScenes[context.dataIndex];
+                                    return scene.supporting_text ? 
+                                        `\n"${scene.supporting_text.substring(0, 50)}..."` : '';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 10,
+                            ticks: {
+                                font: {
+                                    size: 10
+                                }
+                            },
+                            grid: {
+                                color: 'rgba(0, 0, 0, 0.05)'
+                            }
+                        },
+                        x: {
+                            ticks: {
+                                font: {
+                                    size: 9
+                                },
+                                maxRotation: 45,
+                                minRotation: 45
+                            },
+                            grid: {
+                                display: false
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        //  NARRATIVE TIMELINE (Scrollable Horizontal Narrative)
+        // ═══════════════════════════════════════════════════════════════
+        let _tlCurrentAct = 'act_1';
+        let _tlScrollInited = false;
+
+        function scrollTimelineBy(amount) {
+            const el = document.getElementById('tl-scroll-area');
+            if (el) {
+                el.scrollBy({ left: amount, behavior: 'smooth' });
+            }
+        }
+
+        function _initTimelineInteractions() {
+            if (_tlScrollInited) return;
+            const scrollArea = document.getElementById('tl-scroll-area');
+            if (!scrollArea) return;
+            _tlScrollInited = true;
+
+            // 1. Mouse Wheel: Map vertical wheel scroll directly into horizontal scrolling
+            scrollArea.addEventListener('wheel', function(e) {
+                if (e.deltaY !== 0 || e.deltaX !== 0) {
+                    e.preventDefault();
+                    const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+                    scrollArea.scrollLeft += delta * 1.5;
+                }
+            }, { passive: false });
+
+            // 2. Click & Drag to Pan (Drag-to-Scroll)
+            let isDown = false;
+            let startX;
+            let startScrollLeft;
+
+            scrollArea.addEventListener('mousedown', function(e) {
+                // Ignore if clicked on a card or button
+                if (e.target.closest('.tl-event') || e.target.closest('button')) return;
+                isDown = true;
+                scrollArea.classList.add('dragging');
+                startX = e.pageX - scrollArea.offsetLeft;
+                startScrollLeft = scrollArea.scrollLeft;
+            });
+
+            window.addEventListener('mouseup', function() {
+                if (isDown) {
+                    isDown = false;
+                    scrollArea.classList.remove('dragging');
+                }
+            });
+
+            window.addEventListener('mouseleave', function() {
+                if (isDown) {
+                    isDown = false;
+                    scrollArea.classList.remove('dragging');
+                }
+            });
+
+            scrollArea.addEventListener('mousemove', function(e) {
+                if (!isDown) return;
+                e.preventDefault();
+                const x = e.pageX - scrollArea.offsetLeft;
+                const walk = (x - startX) * 1.6;
+                scrollArea.scrollLeft = startScrollLeft - walk;
+            });
+
+            // 3. Keyboard Navigation (Left / Right arrows, Escape)
+            window.addEventListener('keydown', function(e) {
+                const overlay = document.getElementById('timeline-overlay');
+                if (overlay && overlay.classList.contains('active')) {
+                    if (e.key === 'ArrowRight') {
+                        scrollTimelineBy(350);
+                    } else if (e.key === 'ArrowLeft') {
+                        scrollTimelineBy(-350);
+                    } else if (e.key === 'Escape') {
+                        closeTimeline();
+                    }
+                }
+            });
+        }
+
+        async function showActTimeline(actId) {
+            _tlCurrentAct = actId || 'act_1';
+
+            // Show overlay, hide network graph
+            document.getElementById('timeline-overlay').classList.add('active');
+            document.getElementById('graph-container').style.display = 'none';
+
+            // Initialize wheel / drag-scroll interactions once
+            _initTimelineInteractions();
+
+            // Update top pill
+            const indLabel = document.getElementById('level-indicator-label');
+            if (indLabel) indLabel.textContent = 'Narrative Timeline';
+
+            // Activate tab
+            ['act_1','act_2','act_3','all'].forEach(a => {
+                const t = document.getElementById('tl-tab-' + a);
+                if (t) t.classList.toggle('active', a === _tlCurrentAct);
+            });
+
+            await _renderTimeline(_tlCurrentAct);
+        }
+
+        async function switchTimelineAct(actId) {
+            _tlCurrentAct = actId;
+            ['act_1','act_2','act_3','all'].forEach(a => {
+                const t = document.getElementById('tl-tab-' + a);
+                if (t) t.classList.toggle('active', a === actId);
+            });
+            await _renderTimeline(actId);
+        }
+
+        function closeTimeline() {
+            document.getElementById('timeline-overlay').classList.remove('active');
+            document.getElementById('graph-container').style.display = '';
+            const indLabel = document.getElementById('level-indicator-label');
+            if (indLabel) indLabel.textContent = 'Story Overview';
+        }
+
+        async function _renderTimeline(actId) {
+            const rail = document.getElementById('tl-rail');
+            const subtitle = document.getElementById('tl-subtitle');
+
+            // Clear previous elements
+            while (rail.children.length > 0) rail.removeChild(rail.lastChild);
+            const axisEl = document.createElement('div');
+            axisEl.className = 'timeline-axis';
+            rail.appendChild(axisEl);
+
+            subtitle.textContent = 'Loading\u2026';
+
+            let data;
+            try {
+                const resp = await fetch('/api/act-timeline?act=' + encodeURIComponent(actId));
+                data = await resp.json();
+            } catch(e) {
+                subtitle.textContent = 'Error loading timeline';
+                console.error('[Timeline]', e);
+                return;
+            }
+
+            const events = data.events || [];
+            const sceneCount = new Set(events.map(e => e.chunk_id)).size;
+            subtitle.textContent = `${data.act_label}  \u00b7  ${events.length} narrative events across ${sceneCount} scenes`;
+
+            const actColor = data.act_color || '#58a6ff';
+            const curTab = document.getElementById('tl-tab-' + actId);
+            if (curTab) curTab.style.borderTopColor = actColor;
+
+            if (events.length === 0) {
+                rail.innerHTML = '<div style="color:#8b949e;text-align:center;padding:120px 0;font-size:14px">No events found for this act</div>';
+                return;
+            }
+
+            // Sort chronologically by chunk_id, then by name
+            events.sort((a, b) => ((a.chunk_id||0) - (b.chunk_id||0)) || (a.name||'').localeCompare(b.name||''));
+
+            // ── Compact Layout parameters (Fits vertically without vertical scroll) ──
+            const CARD_W     = 150;     // card width in px
+            const COL_STRIDE = 166;     // horizontal distance between event centers
+            const RAIL_PAD   = 70;      // left & right margins
+            const AXIS_Y     = 200;     // horizontal axis center Y
+            const STEM_NEAR  = 30;      // stem length for Tier 1 (near axis)
+            const STEM_FAR   = 90;      // stem length for Tier 2 (far from axis)
+            const JUNK       = new Set(['NO','YES','OK','OH','AH','VO','OS']);
+
+            // ── Palette matching reference image ─────────────────────────────
+            const COLOR_SAGE = {
+                bg: '#25351e', border: '#7e9e62', text: '#e6f4dc', dot: '#9bbd7c'
+            };
+            const COLOR_TEAL = {
+                bg: '#14312c', border: '#4f8f82', text: '#daf3ee', dot: '#6eb5a7'
+            };
+            const COLOR_OCHRE = {
+                bg: '#38200a', border: '#bf702a', text: '#fae3cb', dot: '#e08b3b'
+            };
+            const COLOR_CLIMAX = {
+                bg: '#3b0e18', border: '#e11d48', text: '#ffe4e6', dot: '#ff4d6d'
+            };
+
+            const PALETTES = [COLOR_SAGE, COLOR_TEAL, COLOR_OCHRE];
+
+            // 4-lane alternating pattern
+            const LANES = [
+                { above: true,  stem: STEM_NEAR },
+                { above: false, stem: STEM_NEAR },
+                { above: true,  stem: STEM_FAR  },
+                { above: false, stem: STEM_FAR  }
+            ];
+
+            const totalW = Math.max(1000, RAIL_PAD * 2 + events.length * COL_STRIDE);
+            rail.style.width = totalW + 'px';
+            rail.style.height = '420px';
+            rail.style.minHeight = '420px';
+
+            // ── Scene tick markers on the axis ──────────────────────────────
+            let lastTickScene = -1;
+            events.forEach((ev, idx) => {
+                const cid = ev.chunk_id || 0;
+                if (idx === 0 || idx === events.length - 1 || (cid % 5 === 0 && cid !== lastTickScene)) {
+                    lastTickScene = cid;
+                    const x = RAIL_PAD + idx * COL_STRIDE;
+                    const frac = (x / totalW) * 100;
+
+                    const tick = document.createElement('div');
+                    tick.className = 'timeline-tick';
+                    tick.style.left = frac + '%';
+
+                    const lbl = document.createElement('div');
+                    lbl.className = 'timeline-tick-label';
+                    lbl.style.left = frac + '%';
+                    lbl.textContent = 'Sc ' + cid;
+
+                    axisEl.appendChild(tick);
+                    axisEl.appendChild(lbl);
+                }
+            });
+
+            // ── Render each event pill ───────────────────────────────────────
+            events.forEach((ev, idx) => {
+                const x = RAIL_PAD + idx * COL_STRIDE;
+                const lane = LANES[idx % 4];
+                const isAbove = lane.above;
+                const stemH = lane.stem;
+
+                let pal;
+                if (ev.is_major) {
+                    pal = COLOR_CLIMAX;
+                } else {
+                    pal = PALETTES[idx % PALETTES.length];
+                }
+
+                const nameRaw = (ev.name || '').replace(/_/g, ' ').toLowerCase();
+                const nameCap = nameRaw.charAt(0).toUpperCase() + nameRaw.slice(1);
+
+                const pNames = (ev.participants || [])
+                    .map(p => String(p).trim())
+                    .filter(p => p.length > 1 && !JUNK.has(p.toUpperCase()))
+                    .slice(0, 2)
+                    .join(', ');
+
+                // 1. Dot on the axis line
+                const dot = document.createElement('div');
+                const dotSize = ev.is_major ? 12 : 9;
+                dot.className = 'tl-dot';
+                dot.style.left = x + 'px';
+                dot.style.top = AXIS_Y + 'px';
+                dot.style.width = dotSize + 'px';
+                dot.style.height = dotSize + 'px';
+                dot.style.background = pal.dot;
+                rail.appendChild(dot);
+
+                // 2. Connector stem line
+                const conn = document.createElement('div');
+                conn.className = 'tl-connector';
+                conn.style.left = x + 'px';
+                conn.style.background = pal.dot;
+
+                if (isAbove) {
+                    conn.style.top = (AXIS_Y - stemH) + 'px';
+                    conn.style.height = stemH + 'px';
+                } else {
+                    conn.style.top = AXIS_Y + 'px';
+                    conn.style.height = stemH + 'px';
+                }
+                rail.appendChild(conn);
+
+                // 3. Event Pill Bubble
+                const card = document.createElement('div');
+                card.className = 'tl-event' + (ev.is_major ? ' major' : '');
+                card.style.left = (x - CARD_W / 2) + 'px';
+
+                const pill = document.createElement('div');
+                pill.className = 'tl-event-pill';
+                pill.style.background = pal.bg;
+                pill.style.borderColor = pal.border;
+                pill.style.color = pal.text;
+
+                const nameEl = document.createElement('div');
+                nameEl.className = 'tl-event-name';
+                nameEl.textContent = nameCap;
+                pill.appendChild(nameEl);
+
+                // Meta row: scene + location
+                const metaEl = document.createElement('div');
+                metaEl.className = 'tl-event-meta';
+                const scSpan = document.createElement('span');
+                scSpan.style.fontWeight = '700';
+                scSpan.textContent = 'Sc ' + (ev.chunk_id || 0);
+                metaEl.appendChild(scSpan);
+
+                if (ev.location && ev.location !== 'Unknown') {
+                    const locSpan = document.createElement('span');
+                    locSpan.className = 'tl-event-loc';
+                    locSpan.textContent = ev.location;
+                    metaEl.appendChild(locSpan);
+                }
+                pill.appendChild(metaEl);
+
+                if (pNames) {
+                    const partEl = document.createElement('div');
+                    partEl.className = 'tl-event-part';
+                    partEl.textContent = '\ud83d\udc65 ' + pNames;
+                    pill.appendChild(partEl);
+                }
+
+                card.appendChild(pill);
+
+                // Measure natural height
+                card.style.visibility = 'hidden';
+                rail.appendChild(card);
+                const measuredH = card.offsetHeight || 60;
+                card.style.visibility = '';
+
+                // Position card at end of stem
+                if (isAbove) {
+                    card.style.top = (AXIS_Y - stemH - measuredH) + 'px';
+                } else {
+                    card.style.top = (AXIS_Y + stemH) + 'px';
+                }
+
+                card.title = `${nameCap}\nScene ${ev.chunk_id || 0}${ev.location ? ' · ' + ev.location : ''}${ev.description ? '\n' + ev.description : ''}`;
+
+                card.addEventListener('click', () => {
+                    closeTimeline();
+                    openSceneInspector(ev.name, ev.chunk_id);
+                });
+            });
+
+            // Reset scroll to start on tab change
+            document.getElementById('tl-scroll-area').scrollLeft = 0;
+        }
+
+    </script>
+</body>
+</html>
