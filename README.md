@@ -45,7 +45,7 @@
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/graphrag-screenplay.git
+git clone https://github.com/RamiHazmi/ScriptGraph.git
 cd graphrag-screenplay
 
 # Install dependencies
@@ -596,21 +596,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-## ⭐ Star History
 
-If you find this project useful, please consider giving it a star!
 
-[![Star History Chart](https://api.star-history.com/svg?repos=yourusername/graphrag-screenplay&type=Date)](https://star-history.com/#yourusername/graphrag-screenplay&Date)
 
----
-
-## 📊 Project Stats
-
-![GitHub last commit](https://img.shields.io/github/last-commit/yourusername/graphrag-screenplay)
-![GitHub issues](https://img.shields.io/github/issues/yourusername/graphrag-screenplay)
-![GitHub stars](https://img.shields.io/github/stars/yourusername/graphrag-screenplay)
-![GitHub forks](https://img.shields.io/github/forks/yourusername/graphrag-screenplay)
-
----
 
 **Built with ❤️ for storytellers, screenwriters, and narrative intelligence researchers**
